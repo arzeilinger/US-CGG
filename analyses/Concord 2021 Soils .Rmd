@@ -1,0 +1,416 @@
+---
+title: "Concord_Master_EA_resutls_2021"
+author: "Isabel Torres"
+date: "1/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r, include=FALSE}
+
+install.packages("lme4")
+
+install.packages("ggplot2")
+
+install.packages("cowplot")
+
+
+
+```
+
+```{r}
+library(lme4)
+library(ggplot2)
+library(cowplot)
+library(readr)
+library(nptests)
+```
+
+```{r}
+#data <- read_csv("~/Desktop/R data/Concord 2020 Soils/Concord_Master_EA_results_sampling_2021.csv")
+data <- read_csv("data/Concord_CN_master_2021_edited.csv")
+
+str(data)
+head(data)
+
+#### Looking at data
+with(data, table(Year, Plot))
+table(data$Treatment)
+table(data$Depth)
+
+
+```
+
+
+Carbon (%) in soil by 10cm intervals, up to 100 cm depth. (using depth column)
+```{r}
+ggplot(data = data, aes(x = data$depth, y = data$`%_carbon`)) +
+  geom_line(color = "black", lty = 1) +
+  theme_bw()
+
+
+```
+
+Carbon (%) in soil by 10cm intervals, up to 100 cm depth. (using soil_depth column)
+```{r}
+ggplot(data = data, aes(x = data$soil_depth, y = data$`%_carbon`)) +
+  geom_line(color = "black", lty = 1) +
+  theme_bw()
+
+
+```
+
+Nitrogen (%) in soil by 10cm intervals, up to 100 cm depth. 
+```{r}
+ggplot(data = data, aes(x = data$soil_depth, y = data$`%_nitrogen`)) +
+  geom_line(color = "black", lty = 1) +
+  theme_bw()
+
+```
+
+Now we can plot data for Carbon in Treatment Plots only (by soil depth). 
+```{r hist-plot}
+
+## Comment on how to plot
+C_plot <- ggplot(data, aes(x = data$`%_carbon`)) +
+  geom_histogram(bins = 100) +
+  theme_bw()
+C_plot
+
+#ggsave(C_plot,file = "CarbonHistogram.jpeg", width=7, height = 7, units = "in")
+```
+
+
+Now the same for Nitrogen in Treatment Plots only (by soil depth).
+```{r hist-plot}
+
+## Comment on how to plot
+N_plot <- ggplot(data, aes(x = data$`%_nitrogen`)) +
+  geom_histogram(bins = 100) +
+  theme_bw()
+N_plot
+
+#ggsave(ta_plot,file = "po4_histogram.jpeg", width=7, height = 7, units = "in")
+```
+
+
+
+```{r}
+#Now we remove outliers
+#first find outliers and visualize
+data_outliers <- data[data$`%_nitrogen`  < 10.0, ]
+data_outliers
+
+ggplot()+geom_line(data = data_outliers, aes(x = data_outliers$soil_depth, y = data_outliers$`%_nitrogen`), color="red") +
+ geom_line(data = data_outliers, aes(x = data_outliers$soil_depth, y = data_outliers$`%_nitrogen`), color="blue")+ 
+  xlab('soil_depth')+ylab('Nitrogen')
+
+#This line of code could be used to replace outliers with NaN's instead of removing those rows
+#data[data$`%_nitrogen` > 10.0, "Nitrogen"] <- NA
+
+
+
+```
+
+```{r}
+linear_model_Nitrogen_for_TRT_plots<- lm(data$`%_nitrogen` ~ data$management_type   , data = data)
+summary(linear_model_Nitrogen_for_TRT_plots)
+
+#plot(variable vs variable)
+
+linear_regression_plot <- ggplot(data = data, aes(x = data$management_type , y = data$'%_nitrogen')) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+#ggsave(linear_regression_plot,file = "linear_regression_plot_.jpeg", width=7, height = 7, units = "in")
+```
+finish 3/31/22
+```{r}
+linear_model_Carbon_for_TRT_plots<- lm(data$`%_nitrogen` ~ data$management_type   , data = data)
+summary(linear_model_Nitrogen_for_TRT_plots)
+
+#plot(variable vs variable)
+
+linear_regression_plot <- ggplot(data = data, aes(x = data$management_type , y = data$'%_nitrogen')) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+#ggsave(linear_regression_plot,file = "linear_regression_plot_.jpeg", width=7, height = 7, units = "in")
+```
+
+
+
+```{r} 
+
+## Comment on how to plot
+C_plot <- ggplot(data, aes(x = data$`%_carbon`)) +
+  geom_histogram(bins = 100) +
+  theme_bw()
+C_plot
+
+#ggsave(ta_plot,file = "po4_histogram.jpeg", width=7, height = 7, units = "in")
+
+```
+
+linear regression for C
+```{r}
+
+linear_regression_plot <- ggplot(data = data, aes(x = data$`%_carbon`, y = data$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Cabron_management_type<- lm(data$`%_carbon` ~ data$management_type, data = data)
+summary(linear_model_Cabron_management_type)
+
+plot(linear_model_Cabron_management_type)
+#ggsave(linear_regression_plot,file = "linear_regression_plot.jpeg", width=7, height = 7, units = "in")
+```
+wait until full dataset. Plots don't look too different 
+For caption Plot 1: % Carbon from soils in Control and Treatment plots (0-50cm). Significantly different by p-value: 0.03612 from anova above. 
+Plot 2: Carbon from surface soils (0-10cm) are marginally significantly different by p-value: 0.08536. All other depths are not significantly different from one another.  
+```{r}
+boxplot(data$`%_carbon`~data$management_type,data=data, main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+
+boxplot(data$`%_carbon`~data$management_type * data$depth,data=data, col=(c("red","green")), main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+legend(x = 3, y = 7, # Coordinates
+       legend = c("Control", "Treatment"),
+       lty = c(1, 2),
+       col = c(2, 3),
+       lwd = 2)
+```
+
+This data set will only have the shallow soils 0-10cm (data_shallow) (line197):
+```{r}
+#Checking surface soils via anova
+data_shallow <- data[data$depth  < 20.0, ]
+data_shallow
+
+
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_carbon`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Carbon_management_type<- lm(data_shallow$`%_carbon` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Carbon_management_type)
+
+plot(linear_model_Carbon_management_type)
+
+boxplot(data_shallow$`%_carbon`~data_shallow$management_type,data=data_shallow, main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+```
+```{r}
+#For 20 cm layer
+data_shallow <- data[data$depth  < 30.0 & data$depth > 10.0, ]
+data_shallow
+
+
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_carbon`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Carbon_management_type<- lm(data_shallow$`%_carbon` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Carbon_management_type)
+
+plot(linear_model_Carbon_management_type)
+
+boxplot(data_shallow$`%_carbon`~data_shallow$management_type,data=data_shallow, main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+```
+```{r}
+#For 30 cm layer
+data_shallow <- data[data$depth  < 40.0 & data$depth > 20.0, ]
+data_shallow
+
+
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_carbon`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Carbon_management_type<- lm(data_shallow$`%_carbon` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Carbon_management_type)
+
+plot(linear_model_Carbon_management_type)
+
+boxplot(data_shallow$`%_carbon`~data_shallow$management_type,data=data_shallow, main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+```
+
+
+```{r}
+#for 40 cm layer
+data_shallow <- data[data$depth  < 50.0 & data$depth > 30.0, ]
+data_shallow
+
+
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_carbon`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Carbon_management_type<- lm(data_shallow$`%_carbon` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Carbon_management_type)
+
+plot(linear_model_Carbon_management_type)
+
+boxplot(data_shallow$`%_carbon`~data_shallow$management_type,data=data_shallow, main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+```
+
+```{r}
+#For 50 cm layer
+data_shallow <- data[data$depth  < 60.0 & data$depth > 40.0, ]
+data_shallow
+
+
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_carbon`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Carbon_management_type<- lm(data_shallow$`%_carbon` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Carbon_management_type)
+
+plot(linear_model_Carbon_management_type)
+
+boxplot(data_shallow$`%_carbon`~data_shallow$management_type,data=data_shallow, main="Carbon 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Carbon (%)")
+```
+Boxplots for Nitrogen 
+
+```{r}
+boxplot(data$`%_nitrogen`~data$management_type,data=data, main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+
+boxplot(data$`%_nitrogen`~data$management_type * data$depth,data=data, col=(c("red","green")), main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+legend(x = 3, y = 7, # Coordinates
+       legend = c("Control", "Treatment"),
+       lty = c(1, 2),
+       col = c(2, 3),
+       lwd = 2)
+
+```
+
+```{r}
+#Checking Nitrogen in surface soils via anova (0-10cm)
+data_shallow <- data[data$depth  < 20.0, ]
+data_shallow
+
+
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_nitrogen`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Nitrogen_management_type<- lm(data_shallow$`%_nitrogen` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Nitrogen_management_type)
+
+plot(linear_model_Nitrogen_management_type)
+
+boxplot(data_shallow$`%_nitrogen`~data_shallow$management_type,data=data_shallow, main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+```
+
+```{r}
+#For 20 cm layer
+data_shallow <- data[data$depth  < 30.0 & data$depth > 10.0, ]
+data_shallow
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_nitrogen`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Nitrogen_management_type<- lm(data_shallow$`%_nitrogen` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Nitrogen_management_type)
+
+plot(linear_model_Nitrogen_management_type)
+
+boxplot(data_shallow$`%_nitrogen`~data_shallow$management_type,data=data_shallow, main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+```
+
+```{r}
+#For 30 cm layer
+data_shallow <- data[data$depth  < 40.0 & data$depth > 20.0, ]
+data_shallow
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_nitrogen`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Nitrogen_management_type<- lm(data_shallow$`%_nitrogen` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Nitrogen_management_type)
+
+plot(linear_model_Nitrogen_management_type)
+
+boxplot(data_shallow$`%_nitrogen`~data_shallow$management_type,data=data_shallow, main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+```
+
+```{r}
+#For 40 cm layer
+data_shallow <- data[data$depth  < 50.0 & data$depth > 30.0, ]
+data_shallow
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_nitrogen`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Nitrogen_management_type<- lm(data_shallow$`%_nitrogen` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Nitrogen_management_type)
+
+plot(linear_model_Nitrogen_management_type)
+
+boxplot(data_shallow$`%_nitrogen`~data_shallow$management_type,data=data_shallow, main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+```
+
+```{r}
+#For 40 cm layer
+data_shallow <- data[data$depth  < 60.0 & data$depth > 40.0, ]
+data_shallow
+linear_regression_plot <- ggplot(data = data_shallow, aes(x = data_shallow$`%_nitrogen`, y = data_shallow$management_type)) +
+  geom_point(size=2, shape=1) +
+  theme_bw()+ geom_smooth(method=lm)
+linear_regression_plot
+
+linear_model_Nitrogen_management_type<- lm(data_shallow$`%_nitrogen` ~ data_shallow$management_type , data = data_shallow)
+summary(linear_model_Nitrogen_management_type)
+
+plot(linear_model_Nitrogen_management_type)
+
+boxplot(data_shallow$`%_nitrogen`~data_shallow$management_type,data=data_shallow, main="Nitrogen 2021 TRT vs. CTL",
+   xlab="Management Type", ylab="Nitrogen (%)")
+```
