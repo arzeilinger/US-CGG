@@ -1,0 +1,411 @@
+---
+title: "Concord 2020 Soils"
+author: "Isabel Torres"
+date: "11/18/2021"
+output: html_document
+---
+#Concord, CA 2020 Soil Sample Analyses 
+#Total Carbon, Total Nitrogen, pH, and EC for soil samples 0-100cm depth. 
+#Isabel L. Torres 
+#CSU East Bay 2022
+
+# Updated by Adam Zeilinger, 2023-01-27
+# Includes analysis of 2020 and 2021 data
+
+##################################
+#Data Import
+##################################
+
+
+```{r, include=FALSE}
+
+install.packages("lme4")
+
+install.packages("tidyverse") # Includes ggplot2
+
+install.packages("cowplot")
+
+## Install package from GitHub for the nonparametric tests from Stanley et al. (2023) paper
+devtools::install_github('spertus/nptests')
+
+
+```
+
+```{r}
+library(lme4)
+library(tidyverse) # Includes ggplot2
+library(cowplot)
+library(readr)
+library(nptests)
+
+## Load functions
+source("functions/make_labelstring.R")
+
+```
+
+```{r times series plot, echo=FALSE}
+
+#data <- read_csv("~/Desktop/R data/ESM/Concord_CN_master.csv")
+data <- read_csv("data/Concord_CN_master.csv")
+
+str(data)
+head(data)
+
+#### Rename columns to make them easier to type and read in R
+#names(data) <- c("trt", "year", "plot", "sampleID", "depth", "oc_mg_ha", "on_mg_ha")
+data <- data %>%
+  rename(sampleID = `Sample ID`,
+         oc_mg_ha = `OC (Mg/Ha)`,
+         on_mg_ha = `ON (Mg/Ha)`)
+str(data)
+summary(data)
+
+#### Looking at data
+with(data, table(Year, Plot))
+table(data$Treatment)
+table(data$Depth)
+
+
+
+```
+
+Carbon (Mg/Ha) in soil by 10cm intervals, up to 100 cm depth. 
+```{r}
+ggplot(data = data, aes(x = data$Depth, y = data$oc_mg_ha)) +
+  geom_point(color = "black", alpha = 0.5) +
+  theme_bw()
+
+
+```
+
+Nitrogen (Mg/Ha) in soil by 10cm intervals, up to 100 cm depth. 
+```{r}
+ggplot(data = data, aes(x = data$Depth, y = data$on_mg_ha)) +
+  geom_point(color = "black", alpha = 0.5) +
+  theme_bw()
+
+```
+
+
+#### Preliminary exploration of nonparametric test from Stanley et al. (2023)
+```{r}
+
+## Pivot to a wider format so each treatment is in a separate column
+dataDepth10 <- data %>% dplyr::filter(Depth == 10) %>%
+  pivot_wider(id_cols = Plot, names_from = Treatment, values_from = oc_mg_ha)
+dataDepth10
+
+## Gaffke nonparametric test for depth 10 only
+## Note: the test requires lower and upper bounds on the data ...
+## here I chose 50 as an upper bound because this was the same cutoff for outliers, may need to be modified
+## Only provides p-value of one-sided test of mu_2 <= mu_1...
+## where mu_2 and mu_1 are means of sample_2 and sample_1 vectors, respectively
+gaffkeTestDepth10 <- two_sample_gaffke(sample_1 = dataDepth10$TRT,
+                                       sample_2 = dataDepth10$CTL,
+                                       bounds = c(0,60))
+gaffkeTestDepth10
+
+
+## Test the Gaffke CI function
+gaffkeCI_depth10Trt <- c(gaffke_CI(dataDepth10$TRT, side = "upper"),
+                         mean(dataDepth10$TRT),
+                         gaffke_CI(dataDepth10$TRT, side = "lower"))
+
+
+gaffkeCI_depth10Trt
+
+```
+
+# Load and combine data from both years
+
+```{r}
+
+#### Load and combine year data
+data20 <- data
+data21 <- read_csv("data/Concord_CN_master_2021_edited.csv")
+str(data21)
+
+## Rename 2021 data
+data21 <- data21 %>%
+  rename(sampleID = `Sample ID`,
+         oc_mg_ha = `OC (Mg/Ha)`,
+         on_mg_ha = `ON (Mg/Ha)`)
+summary(data21)
+
+#### Looking at data
+with(data21, table(Year, Plot))
+table(data21$Treatment)
+table(data21$Depth)
+
+
+## Combine data sets
+data <- bind_rows(data20, data21)
+
+#### Looking at data
+with(data, table(Year, Plot))
+with(data, table(Year, Treatment))
+with(data, table(Year, Depth))
+
+saveRDS(data, file = "output/combined_years_CN_data_set.rds")
+
+
+
+```
+
+
+#### Exploring Carbon data
+
+```{r}
+
+#### data set includes both years
+data <- readRDS("output/combined_years_CN_data_set.rds")
+
+
+## Boxplot by treatment
+trtCBoxplot <- ggplot(data = data, aes(y = oc_mg_ha, x = Treatment)) +
+  geom_boxplot() +
+  facet_wrap(~ Year) +
+  theme_bw()
+trtCBoxplot
+
+## Scatter plot by depth and treatment
+trtCScatterplot <- ggplot(data = data, aes(y = oc_mg_ha, x = Depth, group = Treatment)) +
+  geom_point(aes(color = Treatment)) +
+  facet_wrap(~ Year) +
+  theme_bw()
+trtCScatterplot
+
+
+## Histograms of the data by treatment
+TrtCHistograms <- ggplot(data = data, aes(x = oc_mg_ha, group = Treatment)) +
+  geom_histogram(binwidth = 5) +
+  facet_wrap(~Treatment + Year, nrow = 2) +
+  theme_bw()
+TrtCHistograms
+## Both treatments are heavily skewed to the right (have heavy right tails)
+## Outliers in Control treatment
+## Outlier cutoffs: include all data < 60
+## Apply to both years
+
+outlier_C_upper_cutoff <- 60
+
+```
+
+
+
+#### Exploring Nitrogen data
+```{r}
+
+data <- readRDS("output/combined_years_CN_data_set.rds")
+  
+## Boxplot by treatment
+trtNBoxplot <- ggplot(data = data, aes(y = on_mg_ha, x = Treatment)) +
+  geom_boxplot() +
+  facet_wrap(~ Year, scales = "free_y") +
+  theme_bw()
+trtNBoxplot
+
+## Scatter plot by depth and treatment
+trtNScatterplot <- ggplot(data = data, aes(y = on_mg_ha, x = Depth, group = Treatment)) +
+  geom_point(aes(color = Treatment)) +
+  facet_wrap(~ Year, scales = "free_y") +
+  theme_bw()
+trtNScatterplot
+
+
+## Histograms of the data by treatment
+TrtNHistograms <- ggplot(data = data, aes(x = on_mg_ha, group = Treatment)) +
+  geom_histogram(binwidth = 5) +
+  facet_wrap(~ Treatment + Year, nrow = 2) +
+  theme_bw()
+TrtNHistograms
+## Both treatments are heavily skewed to the right (have heavy right tails)
+## Outliers in both treatments in 2020
+## Outlier cutoffs: include all data > 0 & < 10
+## Apply to both years
+
+outlier_N_upper_cutoff <- 10
+
+
+```
+
+
+
+
+
+
+#### Fitting nonparametric CI on all depths, treatments, and years
+
+```{r}
+
+## Import full data set
+data <- readRDS("output/combined_years_CN_data_set.rds")
+
+str(data)
+
+#### Looking at data
+with(data, table(Year, Plot))
+with(data, table(Year, Treatment))
+with(data, table(Year, Depth))
+
+
+## Exploratory test of the Gaffke CI function
+dataTest1 <- data %>% dplyr::filter(Depth == 10 & Year == 2021 & Treatment == "TRT" & !is.na(oc_mg_ha))
+with(dataTest1, table(Treatment, Year, Depth)) 
+
+gaffkeCI_depth10Trt <- c(gaffke_CI(dataTest1$oc_mg_ha, alpha = 0.025, B = 20000, side = "lower"),
+                         mean(dataTest1$oc_mg_ha),
+                         gaffke_CI(dataTest1$oc_mg_ha, alpha = 0.025, B = 20000, side = "upper"))
+gaffkeCI_depth10Trt
+
+################################################################################################
+#### Estimating confidence intervals using Gaffke's nonparametric method
+
+## Confidence intervals for C
+npResultsTableOC <- data %>%
+  ## Remove NAs and outliers for C (defined as any observed C >= 60 mg/ha and any negative values)
+  dplyr::filter(!is.na(oc_mg_ha) & oc_mg_ha <= outlier_C_upper_cutoff & oc_mg_ha >= 0) %>%
+  group_by(Treatment, Year, Depth) %>%
+  dplyr::summarise(cil = gaffke_CI(oc_mg_ha, alpha = 0.025, B = 20000, side = "lower"),
+                   mean = mean(oc_mg_ha),
+                   ciu = gaffke_CI(oc_mg_ha, alpha = 0.025, B = 20000, side = "upper")) %>%
+  dplyr::mutate(measured = "C") # Add a variable specifying what was measured (C or N) for combining results
+npResultsTableOC
+
+## Confidence intervals for N
+npResultsTableON <- data %>%
+  ## Remove NAs and outliers (defined as any observed nitrogen >= 10 mg/ha and any negative values)
+  dplyr::filter(!is.na(on_mg_ha) & on_mg_ha <= outlier_N_upper_cutoff & on_mg_ha >= 0) %>%
+  group_by(Treatment, Year, Depth) %>%
+  dplyr::summarise(cil = gaffke_CI(on_mg_ha, alpha = 0.025, B = 20000, side = "lower"),
+                   mean = mean(on_mg_ha),
+                   ciu = gaffke_CI(on_mg_ha, alpha = 0.025, B = 20000, side = "upper")) %>%
+  dplyr::mutate(measured = "N") # Add a variable specifying what was measured (C or N) for combining results
+npResultsTableON
+
+## Put data.frames together
+npResultsTable <- bind_rows(npResultsTableOC, npResultsTableON)
+npResultsTable %>% print.data.frame()
+
+## Sanity check on the results
+cildiff <- with(npResultsTable, mean - cil)
+all(cildiff > 0)
+ciudiff <- with(npResultsTable, ciu - mean)
+all(ciudiff > 0)
+## All means are between cil and ciu
+
+## Save results
+write.csv(npResultsTable, file = "results/nonparametric_Gaffke_CI_results_table_oc_on.csv", row.names = FALSE)
+
+```
+
+
+#### Create a figure with observations, means, and CI
+
+```{r}
+
+#### Import nonparametric test results
+npResultsTable <- read.csv("results/nonparametric_Gaffke_CI_results_table_oc_on.csv", header = TRUE)
+## Add the full measurement names
+npResultsTable <- npResultsTable %>%
+  dplyr::mutate(measured = ifelse(measured == "C", "oc_mg_ha", "on_mg_ha"),
+                ## Create a new composite variable to create subpanels in plot
+                year_measured = paste(Year, measured, sep = "_"))
+npResultsTable
+
+
+#### Import full data set
+data <- readRDS("output/combined_years_CN_data_set.rds")
+str(data)
+
+## Pivot data to long format and prep for plotting
+dataLong <- data %>%
+  pivot_longer(contains("mg_ha"), names_to = "measured", values_to = "observations") %>%
+  ## Remove C and N outliers
+  dplyr::filter((measured == "oc_mg_ha" & observations <= outlier_C_upper_cutoff & observations >= 0) | 
+                  (measured == "on_mg_ha" & observations <= outlier_N_upper_cutoff & observations >= 0)) %>%
+  ## Create a new composite variable to create subpanels in plot
+  dplyr::mutate(year_measured = paste(Year, measured, sep = "_"))
+dataLong
+
+#############################################################################
+# #### Checking that filtering out outliers worked correctly
+# data %>% dplyr::filter(oc_mg_ha >= 60) ## Select OC outliers
+# dataLong %>% dplyr::filter(Treatment == "CTL" & Year == 2020 & Depth == 10 & 
+#                              (Plot == 10 | Plot == 12))
+# data %>% dplyr::filter(Treatment == "CTL" & Year == 2020 & Depth == 10 & 
+#                          (Plot == 10 | Plot == 12))
+# dataLong %>% dplyr::filter(Treatment == "CTL" & Year == 2020 & Depth == 10 & 
+#                              (Plot == 10 | Plot == 12 | Plot == 11))
+# ## ON measurements from the same plots are kept in dataLong...
+# ## and OC and ON measurements from other plots are also kept.
+# dataLong %>% dplyr::filter(observations >= 20)
+# ## OC observations > 20 are included
+# dataLong %>% dplyr::filter(observations >= 20) %>% distinct(measured)
+# ## and only OC observations > 20
+# ## Filtering seems to have worked
+######################################################################
+
+#### Plot with data and stats results
+soilDataCIPlot <- ggplot(data = dataLong, aes(x = Depth, group = Treatment)) +
+  geom_point(aes(y = observations, color = Treatment), 
+             alpha = 0.4, size = 2, position = position_dodge(width = 4.5)) +
+  facet_wrap(~ year_measured, scales = "free_y", labeller = label_panels) +
+  ## To see the year-measurement labels on the panels, comment out above facet_wrap() line and uncomment below:
+  #facet_wrap(~ year_measured, scales = "free_y") +
+  geom_point(data = npResultsTable, aes(x = Depth, y = mean), 
+             size = 3.5, position = position_dodge(width = 4.5), color = "black") +
+  geom_point(data = npResultsTable, aes(x = Depth, y = mean, color = Treatment), 
+             size = 3, position = position_dodge(width = 4.5)) +
+  geom_errorbar(data = npResultsTable, aes(x = Depth, ymax = ciu, ymin = cil), 
+                width=0.4, position = position_dodge(width = 4.5)) +
+  scale_x_continuous("Soil depth (cm)") +
+  scale_y_continuous("Total concentration (mg/ha)") +
+  scale_color_manual(values = c("red", "blue")) +
+  theme_bw(base_size = 14) +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = "black"),
+        panel.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(hjust = -0))
+soilDataCIPlot
+
+ggsave(soilDataCIPlot, filename = "results/figures/plot_soil_CN_data_np_stats.jpg",
+       units = "in", width = 10, height = 10)
+
+
+```
+
+# Check results from linear models
+
+```{r}
+
+#### Import full data set
+data <- readRDS("output/combined_years_CN_data_set.rds")
+str(data)
+
+#### Carbon lm model
+data_outliersC <- data %>%
+  dplyr::filter(!is.na(oc_mg_ha) & oc_mg_ha <= outlier_C_upper_cutoff & oc_mg_ha >= 0)
+
+clmMod <- lm(oc_mg_ha ~ Year*Depth*Treatment, data = data_outliersC)
+plot(clmMod)
+summary(clmMod)
+## Results for C: marginally significant Treatment main effect and Year-Treatment interaction
+## QQ plot confirms skew in distribution
+
+#### Nitrogen lm model
+data_outliersN <- data %>%
+  dplyr::filter(!is.na(on_mg_ha) & on_mg_ha <= outlier_N_upper_cutoff & on_mg_ha >= 0)
+
+nlmMod <- lm(on_mg_ha ~ Year*Depth*Treatment, data = data_outliersN)
+plot(nlmMod)
+summary(nlmMod)
+## Results for N: significant Treatment main effect and Year-Treatment interaction
+## QQ plot confirms skew in distribution
+
+
+```
+
