@@ -1,0 +1,28 @@
+{
+    "id": "4826ABE9",
+    "path": null,
+    "project_path": null,
+    "type": "object_explorer",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1661165033660.0,
+    "source_on_save": false,
+    "relative_order": 6,
+    "properties": {
+        "id": "a89b14a6bc424468b47a2756293b57c8",
+        "name": "mod.ss_tr",
+        "title": "mod.ss_tr",
+        "language": "R",
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 519691042937,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1661165033660,
+    "read_only": false,
+    "read_only_alternatives": []
+}

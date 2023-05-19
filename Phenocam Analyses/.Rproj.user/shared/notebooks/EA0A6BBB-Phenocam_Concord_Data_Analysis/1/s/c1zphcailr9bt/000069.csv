@@ -1,0 +1,2 @@
+"0","# plot results"
+"0","plot(data_all_short_gf$Date, data_all_short_gf$gcc_daily_con)"

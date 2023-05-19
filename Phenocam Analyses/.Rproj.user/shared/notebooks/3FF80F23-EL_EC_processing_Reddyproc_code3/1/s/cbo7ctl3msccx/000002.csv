@@ -1,0 +1,14 @@
+"0","```r
+
+
+# plot flux variables after gap-filling
+for(i in 3:length(flux.var)){
+
+  EProc$sPlotDiurnalCycle(paste0(flux.var[i],\"_f\"),
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(paste0(flux.var[i],\"_f\"),
+                      Dir = out.dir)
+
+}
+
+```"

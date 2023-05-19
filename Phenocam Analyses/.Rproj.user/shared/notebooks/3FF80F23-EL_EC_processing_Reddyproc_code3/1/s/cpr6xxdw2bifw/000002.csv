@@ -1,0 +1,22 @@
+"0","```r
+###############################################################################################################
+# Storing the results in a csv-file
+# The results still reside inside the sEddyProc class. We first export them to an R Data.frame, append the
+# columns to the original input data, and write this data.frame to text file in a temporary directory.
+
+FilledEddyData <- EProc$sExportResults()
+CombinedData <- cbind(EddyData, FilledEddyData)
+
+#fWriteDataframeToFile(CombinedData,
+#                     'Eden_Landing_2019-2020.txt',
+#                     Dir = out.dir)
+
+write.csv(CombinedData,
+          paste(out.dir,Sys.Date(),\"Gap_fill_combined_Eden_Landing.csv\",sep=\"\"),
+          quote = T,
+          row.names = F)
+
+
+
+
+```"

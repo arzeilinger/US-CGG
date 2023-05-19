@@ -1,0 +1,6 @@
+"0","```r
+# while these variables don't needed gap-filling, the following partition functions need qc flags for these met variables 
+EProc$sMDSGapFill('Tair', FillAll = FALSE,  minNWarnRunLength = NA)   
+EProc$sMDSGapFill('Rg', FillAll = FALSE, minNWarnRunLength = NA)
+EProc$sMDSGapFill('VPD', FillAll = FALSE,  minNWarnRunLength = NA) 
+```"

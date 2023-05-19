@@ -1,0 +1,5 @@
+"0",""
+"0",""
+"0"," GccPlot <- ggplot(data = data_all, aes(x = doy_cont, y = gcc_daily_tr))+ geom_line(color = ""black"", lty = 1) +"
+"0","   theme_bw()"
+"0","GccPlot"

@@ -1,0 +1,12 @@
+"0","```r
+####################################################################################
+
+#+++ Load data with 1 header and 1 unit row from (tab-delimited) text file  ##TEXT FILE###
+#fileName <- \"2022-07-21_reddy_proc.txt\"
+fileName <- \"2022-04-26_reddy_proc.txt\"
+EddyData <- fLoadTXTIntoDataframe(fileName,Dir = data.dir)
+
+head(EddyData)
+
+
+```"

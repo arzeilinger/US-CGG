@@ -1,0 +1,14 @@
+"0","```r
+# get a list of gap-filled NEE, based on diff ustar thresholds
+flux.gf.var <- grep(\"NEE_.*_f$\",names(EProc$sExportResults()), value = TRUE)
+
+for(i in 1:length(flux.gf.var)){
+  
+  EProc$sPlotDiurnalCycle(flux.gf.var[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(flux.gf.var[i],
+                      Dir = out.dir)
+  
+}
+
+```"

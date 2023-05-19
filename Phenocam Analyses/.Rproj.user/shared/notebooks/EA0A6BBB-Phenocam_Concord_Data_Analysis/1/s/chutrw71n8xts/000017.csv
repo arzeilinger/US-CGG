@@ -1,0 +1,32 @@
+"0",""
+"0","#Try on spline"
+"0","cpt3 <- cpt.mean(mod.ss_tr$y, method = ""PELT"", penalty = ""CROPS"", pen.value = c(1,25))"
+"1","[1]"
+"1"," ""Maximum number of runs of algorithm = 2"""
+"1","
+"
+"1","[1]"
+"1"," ""Completed runs = 2"""
+"1","
+"
+"0","cpt3 <- cpt.mean(mod.ss_tr$y, method = ""AMOC"")"
+"0","plot(cpt3, diagnostic = TRUE)"
+"2","Warning in plot.window(xlim, ylim, log, ...) :"
+"2","
+ "
+"2"," ""diagnostic"" is not a graphical parameter
+"
+"2","Warning in title(main = main, xlab = xlab, ylab = ylab, ...) :"
+"2","
+ "
+"2"," ""diagnostic"" is not a graphical parameter
+"
+"2","Warning in axis(1, ...) :"
+"2"," ""diagnostic"" is not a graphical parameter
+"
+"2","Warning in axis(2, ...) :"
+"2"," ""diagnostic"" is not a graphical parameter
+"
+"2","Warning in box(...) :"
+"2"," ""diagnostic"" is not a graphical parameter
+"

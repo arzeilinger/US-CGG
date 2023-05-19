@@ -1,0 +1,28 @@
+"0","```r
+
+root.ditr<-\"D:\\SanDiskSecureAccess\\EdenLanding\\Eden_Landing_data\\\"
+
+#root.ditr<-\"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\\"
+data.dir<-paste0(root.ditr,\"04_Reddy_Proc_data\\\") ## 2021-02-10_reddy_proc.txt locate
+out.dir<-paste0(root.ditr,\"07_Gap_Filled_Data\\\") ## store all output figures/files
+
+##include ch4 as a flux var if wanting to use reddyproc to gapfill. Think it should be done seperately from other partitioning because it seems to over write it. 
+flux.var <- c('NEE', 'h2o_flux', 'LE', 'H')
+met.var <- c('Rg', 'Tair', 'Tsoil', 'VPD', 'Ustar', 'rH')
+
+
+# ## change root.path as needed
+# root.path<-\"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\\"
+# #root.path<-\"D:\\Housen\\Flux\\Data-exploring\\02_Concord\\\"
+# 
+ combined.path<-paste0(root.ditr,\"03_combined_data\\\") ## this is where the combined data lives
+# 
+# 
+# path.in_CIMIS<-paste0(root.ditr,\"05_CIMIS_Data\\\")
+#  ver<-\"cimis_data\" 
+# 
+# # hc: Use this for storing combined file
+# path.out<-paste(root.path,\"06_CIMIS_gap_fill\\\",sep=\"\")
+
+
+```"

@@ -1,0 +1,19 @@
+"0","```r
+EddyData$TIMESTAMP<-strptime(paste(EddyData$TIMESTAMP,EddyData$Hour,sep=\" \"),
+                          format=\"%m/%d/%Y %H:%M\", 
+                          tz = \"Etc/GMT-8\")
+
+
+EddyDataWithPosix <-EddyData
+
+
+EddyDataWithPosix$Hour<-NULL
+
+head(EddyDataWithPosix)
+
+
+head(EddyDataWithPosix$TIMESTAMP)
+
+
+EddyDataWithPosix
+```"

@@ -1,0 +1,4 @@
+"0",""
+"0","#Row 45 is duplicated-remove it-and last row is erroneous"
+"0","data_all_short_gf <- data_all_short_gf[-c(45,351,352,353,354,355,356,357), ]"
+"0","plot(data_all_short_gf$doy_cont)"

@@ -1,0 +1,402 @@
+---
+title: "Phenocam Data Analysis US-CGG"
+author: "Patty Oikawa"
+date: "2/23/2021"
+output: html_document
+---
+
+
+
+```{r, include=FALSE}
+
+install.packages("lme4")
+
+install.packages("lmerTest")
+
+install.packages("ggplot2")
+
+install.packages("cowplot")
+
+install.packages("stringr")
+
+install.packages("reshape2")
+
+install.packages("changepoint")
+
+install.packages("npreg")
+
+install.packages("gapfill")
+
+install.packages("chillR")
+
+install.packages(changepoint)
+
+install.packages("multcomp")
+
+install.packages("lsmeans")
+
+```
+
+
+
+```{r}
+library(lme4)
+library(ggplot2)
+library(cowplot)
+library(stringr)
+library(tidyverse)
+library(changepoint)
+
+
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(npreg)
+library(gapfill)
+library(chillR)
+library(changepoint)
+
+```
+
+
+## Importing data
+We will import a csv file and look at a summary of the data
+
+First, make sure the csv file is saved within the folder you are working in for the Rproject, you can see it in the right under files
+
+
+```{r EL data import and summary}
+Con_grass_data <- read.csv("ctg_cophenocam_compiled.csv")
+summary(Con_grass_data)
+names(Con_grass_data)
+str(Con_grass_data)
+
+
+```
+
+
+```{r EL data import and summary}
+Tr_data <- read.csv("tr_cophenocam_compiled.csv")
+summary(Tr_data)
+names(Tr_data)
+str(Tr_data)
+
+```
+
+
+## Start with Simple Plotting
+
+
+```{r times series plot, echo=FALSE}
+#plot data
+  
+    plot(Con_grass_data$doy_cont,Con_grass_data$gcc, type="l", pch=19, col="red", xlab="DOY", ylab="GCC")
+# Add a line
+lines(Tr_data$doy_cont, Tr_data$gcc, type="l", pch=19, col="blue")#, type="b", lty=2)
+# Add a legend
+legend(250, 0.3, legend=c("control", "treatment"))
+
+
+
+```
+
+
+
+```{r}
+
+Con_grass_daily <-Con_grass_data %>% 
+  group_by(doy_cont) %>%
+  summarise(gcc_daily = mean(gcc),year_daily = mean(year))
+
+Tr_daily <-Tr_data %>% 
+  group_by(doy_cont) %>%
+  summarise(gcc_daily = mean(gcc))
+
+
+#Following Richardson et al. 2018 https://www.nature.com/articles/s41598-018-23804-6#Sec7  We calculate 3 day moving mean to smooth out data
+Con_grass_daily_mm <- rollmean(Con_grass_daily, k = 3 )
+Con_grass_daily_mm<-as.data.frame(Con_grass_daily_mm)
+Tr_daily_mm <- rollmean(Tr_daily, k = 3)
+Tr_daily_mm<-as.data.frame(Tr_daily_mm)
+data_all<- Con_grass_daily_mm %>% 
+  #dplyr::select(doy_cont,gcc_daily) %>% 
+  left_join(Tr_daily_mm,.,by="doy_cont", suffix = c("_tr","_con"))
+
+plot(data_all)
+
+#Make time series same length, control data don't start until DOY 250
+data_all_short <- filter(data_all, doy_cont > 250)
+
+
+#Plot DOY column-think I'm missing some days
+plot(data_all_short$doy_cont)
+#create date column
+data_all_short$Date <-as.Date(data_all_short$doy_cont, origin = "2019-12-31")
+#data_all_short$Date<-as.Date(with(data_all_short,paste(year,month,day,sep="-")),"%Y-%m-%d")
+
+#Fill in missing days
+ts <- seq.POSIXt(as.POSIXct("2020-09-11",'%Y-%m-%d'), as.POSIXct("2021-08-26",'%Y-%m-%d'), by="day")
+ts <- seq.POSIXt(as.POSIXlt("2020-09-11"), as.POSIXlt("2021-08-26"), by="day")
+ts <- format.POSIXct(ts,'%Y-%m-%d')
+df <- data.frame(Date=ts)
+# df$Date <- format(as.Date(df$Date), "%Y/%m/%d")
+# summary(df)
+# summary(data_all_short$Date)
+# data_all_short$Date<-as.character(data_all_short$Date)
+data_all_short$Date<-as.Date(data_all_short$Date)
+df$Date<-as.Date(df$Date)
+data_all_short_no_gaps <- full_join(df,data_all_short,.,by="Date")
+
+
+#Gapfill gcc data
+data_all_short_gf<-data_all_short_no_gaps
+
+gcc_daily_con_int<-interpolate_gaps(data_all_short_gf[,"gcc_daily_con"])
+data_all_short_gf[,"gcc_daily_con"]<-gcc_daily_con_int$interp
+data_all_short_gf[,"gcc_daily_con_interpolated"]<-gcc_daily_con_int$missing
+
+gcc_daily_trt_int<-interpolate_gaps(data_all_short_gf[,"gcc_daily_tr"])
+data_all_short_gf[,"gcc_daily_tr"]<-gcc_daily_trt_int$interp
+data_all_short_gf[,"gcc_daily_tr_interpolated"]<-gcc_daily_trt_int$missing
+
+gcc_daily_doy_int<-interpolate_gaps(data_all_short_gf[,"doy_cont"])
+data_all_short_gf[,"doy_cont"]<-gcc_daily_doy_int$interp
+data_all_short_gf[,"doy_cont_interpolated"]<-gcc_daily_doy_int$missing
+#drop decimal on doy column
+data_all_short_gf$doy_cont<-floor(data_all_short_gf$doy_cont)
+plot(data_all_short_gf$doy_cont)
+
+#Row 45 is duplicated-remove it-and last row is erroneous
+data_all_short_gf <- data_all_short_gf[-c(45,351,352,353,354,355,356,357), ]
+plot(data_all_short_gf$doy_cont)
+
+
+
+```
+
+
+
+```{r}
+#Following Richardson et al. 2018 https://www.nature.com/articles/s41598-018-23804-6#Sec7  
+# we do an outlier detection based on deviations from an optimally flexible smoothing spline, with the degree of smoothing identified using Akaike’s Information Criterion. 
+#After outlier removal, the spline was re-fit and used to extract phenological transition dates from the Gcc time series
+
+# load 'npreg' package
+
+
+# fit using ss Fit a Smoothing Spline
+mod.ss_tr <- ss(data_all_short_gf$Date, data_all_short_gf$gcc_daily_tr, nknots=8, method = c("AIC"))
+mod.ss_tr
+plot(mod.ss_tr)
+# plot results
+plot(data_all_short_gf$Date, data_all_short_gf$gcc_daily_tr)
+lines(data_all_short_gf$Date, mod.ss_tr$y, lty = 2, col = 2, lwd = 2)
+legend("topright", 
+       legend = c("gcc tr", "ss"), 
+       lty = 1:3, col = 1:3, lwd = 2, bty = "n")
+
+# fit using ss
+mod.ss_con <- ss(data_all_short_gf$Date, data_all_short_gf$gcc_daily_con, nknots=8, method = c("AIC"))
+mod.ss_con
+plot(mod.ss_con)
+# plot results
+plot(data_all_short_gf$Date, data_all_short_gf$gcc_daily_con)
+lines(data_all_short_gf$Date, mod.ss_con$y, lty = 2, col = 2, lwd = 2)
+legend("topright", 
+       legend = c("gcc control", "ss"), 
+       lty = 1:3, col = 1:3, lwd = 2, bty = "n")
+```
+```{r}
+#Apply Pruned Exact Linear Time (PELT) method using changepoint package
+#are data normal?
+# hist(mod.ss_tr$y) #looks like Gamma
+# plot(mod.ss_tr$y)
+# hist(mod.ss_con$y)#looks normal
+# plot(mod.ss_con$y)
+pheno_change<- cpt.meanvar(mod.ss_tr$y, penalty = "AIC", pen.value=10,method = "BinSeg", Q=4,test.stat="Normal", class = TRUE, param.estimates = TRUE)
+plot(pheno_change,cpt.width=3)
+print(pheno_change)
+
+greenup_tr <-mod.ss_tr$x[93]
+greenup_tr<-as.Date(greenup_tr)
+sene_tr <-mod.ss_tr$x[248]
+sene_tr <-as.Date(sene_tr)
+
+pheno_change_con<- cpt.meanvar(mod.ss_con$y, penalty = "AIC", pen.value=10,method = "BinSeg", Q=2,test.stat="Normal", class = TRUE, param.estimates = TRUE)
+plot(pheno_change_con,cpt.width=3)
+print(pheno_change_con)
+
+greenup_con <-mod.ss_con$x[159]
+greenup_con<-as.Date(greenup_con)
+sene_con <-mod.ss_con$x[230]
+sene_con <-as.Date(sene_con)
+
+```
+
+
+```{r}
+#make a plot with all data plus splines and CI
+#MonthYear<-as.Date(mod.ss_tr$x)
+
+jpeg("Gcc.jpeg")
+plot(mod.ss_tr,
+     xaxt='n',
+     xlab='2020-21',#'Continuous Day of Year (2020-21)',
+     ylab= 'GCC',
+     main='',
+     #cex.main = 0.8,
+     ylim = c(0.33,0.39),
+     xlim = as.Date(c("2020-11-01","2021-07-31")),
+     lty=1,
+     col="blue",
+     lwd=2,
+     type="l")
+#mtext(side=2,expression(GCC),line=2.5)
+#abline(h=0,col="black")
+#abline(v=127, col="blue")
+#axis(side=1,at=seq(0,700,by=30))
+
+par(new=TRUE)
+
+
+plot(mod.ss_con,
+     xaxt='n',
+     xlab='', #'Continuous Day of Year (2020-21)',
+     ylab= '',
+     main='',
+     #cex.main = 0.8,
+     ylim = c(0.33,0.39),
+     xlim = as.Date(c("2020-11-01","2021-07-31")),
+     lty=1,
+     col="red",
+     lwd=2,
+     type="l")
+
+#mtext(side=2,expression(GCC),line=2.5)
+#abline(h=0,col="black")
+#abline(v=365, col="blue")
+#axis(side=1,at=seq(0,700,by=30))
+
+par(new=TRUE)
+
+points(data_all_short$Date, data_all_short$gcc_daily_tr,
+     xaxt='n',
+     xlab='',#'Continuous Day of Year (2020-21)',
+     ylab= '',
+     main='',
+     cex = 0.4,
+     ylim = c(0.33,0.39),
+     xlim = as.Date(c("2020-11-01","2021-07-31")),
+     lty=1,
+     pch=16,
+     col="blue",
+     #lwd=2,
+     type="p")
+#mtext(side=2,expression(GCC),line=2.5)
+#abline(v=248,col="black")#end of growing season (same for treatment and control)
+#abline(v=127, col="blue")#beginning of growing season for control
+#axis(side=1,at=seq(0,700,by=30))
+
+par(new=TRUE)
+
+points(data_all_short$Date, data_all_short$gcc_daily_con,
+     xaxt='n',
+     xlab='',#'Continuous Day of Year (2020-21)',
+     ylab= '',
+     main='',
+     cex = 0.4,
+     ylim = c(0.33,0.39),
+     xlim = as.Date(c("2020-11-01","2021-07-31")),
+     lty=1,
+     pch=16,
+     col="red",
+     #lwd=2,
+     type="p")
+#mtext(side=2,expression(GCC),line=2.5)
+#abline(v=230,col="black")#end of growing season (control) 230
+#abline(v=159, col="red")#beginning of growing season for control
+#axis(side=1,
+ #    at=seq(0,700,by=30),
+  #   labels=seq(0,700,by=30))
+
+par(new=TRUE)
+
+plot(MonthYear, mod.ss_tr$y,
+     ylim = c(0.33,0.39),
+     xlim = as.Date(c("2020-11-01","2021-07-31")),
+     xlab='',#'Continuous Day of Year (2020-21)',
+     ylab= '',
+     lty=1,
+     col="blue",
+     lwd=2,
+     type="l")
+axis(1,                                                   # Add dates to x-axis
+     MonthYear,
+     format(MonthYear, "%m"),
+     side=1,at=seq(by=30))
+#control
+abline(v=as.Date("2021-02-16"), col="red")#beginning of growing season for control 159
+abline(v=as.Date("2021-04-29"),col="red", lty =2)#end of growing season (control) 230
+#treatment
+abline(v=as.Date("2020-12-12"), col="blue")#beginning of growing season for treatment 127
+abline(v=as.Date("2021-05-17"),col="blue", lty =2)#end of growing season (treatment) 248
+
+legend("topleft",
+       legend = c("treatment","control"),
+       col = c("blue","red"),
+       pch =16)
+
+dev.off()
+#jpeg("GCC.jpeg")
+```
+
+
+
+
+
+```{r}
+
+# This plot shows greenup starts for Treatment at DOY 350 and for Control DOY 400
+
+meltdf <- melt(data_all_short,id="doy_cont")
+Gcc_plot<-ggplot(meltdf,aes(x=doy_cont,y=value,colour=variable,group=variable)) +
+ geom_line()  + labs(y= "GCC", x = "Continuous day of year (2020-21)")
+Gcc_plot + geom_point() + scale_fill_discrete(name = "Landcover", labels = c("Treatment", "Control"))
+
+ ggsave(Gcc_plot,file = "Gcc_plot.jpeg", width=15, height = 15, units = "in")
+```
+
+
+
+
+
+
+
+
+```{r}
+#Change point detection
+#use to determing when greenup starts and when senescence starts for each time series
+
+# cpt.mean(Con_grass_daily_mm, method = "AMOC")
+# cpt.mean(Tr_daily_mm, method = "PELT", Q=10)
+
+#need these to be numeric 
+Con_grass_daily_mm_n <- rollmean(Con_grass_daily, k = 3 )
+Tr_daily_mm_n <- rollmean(Tr_daily, k = 3)
+
+cpt1 <- cpt.mean(Con_grass_daily_mm_n, method = "PELT", penalty = "CROPS", pen.value = c(1,25))
+plot(cpt1, diagnostic = TRUE)
+plot(Con_grass_daily_mm)
+cpt2 <- cpt.mean(Tr_daily_mm_n, method = "PELT", penalty = "CROPS", pen.value = c(1,25))
+plot(cpt2, diagnostic = TRUE)
+plot(Tr_daily_mm)
+
+#Try on spline
+cpt3 <- cpt.mean(mod.ss_tr$y, method = "PELT", penalty = "CROPS", pen.value = c(1,25))
+cpt3 <- cpt.mean(mod.ss_tr$y, method = "AMOC")
+plot(cpt3, diagnostic = TRUE)
+plot(mod.ss_tr$y)
+
+```
+
+

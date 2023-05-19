@@ -1,0 +1,28 @@
+"0","```r
+## Daytime-based approach, partition all NEEs (e.g., NEE_ustar,NEE_U50,...) to corresponding GPP/RECO 
+#   two versions present: 1) sGLFluxPartitionUStarScens, based on original Lasslop 2010
+#                         2) sTKFluxPartitionUStarScens, based on a modified version in Keenan 2019
+#   note: this method takes long time & breaks sometimes, the argument 'uStarScenKeep' specify which 
+#         ustar version should run to save time
+
+
+#Lasslop 2010
+EProc$sGLFluxPartitionUStarScens(uStarScenKeep = \"U50\")
+
+#modified Keenan 2019 
+#EProc$sTKFluxPartitionUStarScens(uStarScenKeep = \"U50\")
+
+# get a list of Reco and GPP_f by the respective ustar thresholds
+gppreco.var.dt <- grep(\"GPP_DT|Reco_DT\",names(EProc$sExportResults()), value = TRUE)
+gppreco.var.dt <- gppreco.var.dt[-which(grepl(\"_SD\",gppreco.var.dt))]
+
+for(i in 1:length(gppreco.var.dt)){
+  
+  EProc$sPlotDiurnalCycle(gppreco.var.dt[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(gppreco.var.dt[i],
+                      Dir = out.dir)
+  
+}
+ 
+```"

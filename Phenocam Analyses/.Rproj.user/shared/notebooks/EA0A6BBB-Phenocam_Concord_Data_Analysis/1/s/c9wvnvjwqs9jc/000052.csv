@@ -1,0 +1,8 @@
+"0","pheno_change_con<- cpt.meanvar(mod.ss_con$y, penalty = ""AIC"", pen.value=10,method = ""BinSeg"", Q=2,test.stat=""Normal"", class = TRUE, param.estimates = TRUE)
+"
+"2","Warning in BINSEG(sumstat, pen = pen.value, cost_func = costfunc, minseglen = minseglen,  :"
+"2","
+ "
+"2"," The number of changepoints identified is Q, it is advised to increase Q to make sure changepoints have not been missed.
+"
+"0","plot(pheno_change_con,cpt.width=3)"

@@ -1,0 +1,4 @@
+"0","```r
+grep(\"LE_.*_f$\",names(EProc$sExportResults()), value = TRUE)
+grep(\"LE_.*_fsd$\",names(EProc$sExportResults()), value = TRUE)
+```"

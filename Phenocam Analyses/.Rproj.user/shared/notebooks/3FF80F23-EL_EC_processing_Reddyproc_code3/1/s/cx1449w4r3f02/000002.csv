@@ -1,0 +1,4 @@
+"0","```r
+EProc$sEstimateUstarScenarios( 
+  nSample = 200, probs = seq(0.025,0.975,length.out = 39) )
+```"

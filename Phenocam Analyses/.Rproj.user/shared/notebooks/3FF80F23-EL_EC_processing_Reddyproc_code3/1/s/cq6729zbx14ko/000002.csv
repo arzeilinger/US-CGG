@@ -1,0 +1,11 @@
+"0","```r
+#### Gap fill variable with specified variables and limits (change as needed)
+#    Marginal distribution sampling method by Reichstein et al.2005
+#    It loops through gaps, and fill them iteratively by diff environmental condition, window size 
+EProc$sMDSGapFillUStarScens('NEE',
+                            V1 = 'Rg', T1 = 30, ## 'Rg' within +/-30 W m-2
+                            V2 = 'Tair', T2 = 2,  ## 'Tair' within +/-2 degC
+                            V3 = 'VPD', T3 = 0.5,   ## 'VPD' within +/-0.5 kPa
+                            FillAll = TRUE)
+
+```"

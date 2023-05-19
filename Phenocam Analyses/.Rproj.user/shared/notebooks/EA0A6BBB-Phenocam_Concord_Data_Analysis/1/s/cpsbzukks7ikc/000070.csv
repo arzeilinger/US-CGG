@@ -1,0 +1,7 @@
+"0",""
+"0","#Make time series same length, control data don't start until DOY 250"
+"0","data_all_short <- filter(data_all, doy_cont > 250)"
+"0",""
+"0",""
+"0","#Plot DOY column-think I'm missing some days"
+"0","plot(data_all_short$doy_cont)"

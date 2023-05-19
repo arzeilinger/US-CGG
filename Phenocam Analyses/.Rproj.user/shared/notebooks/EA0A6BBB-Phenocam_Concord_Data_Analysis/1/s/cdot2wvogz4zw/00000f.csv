@@ -1,0 +1,13 @@
+"0",""
+"0","# This plot shows greenup starts for Treatment at DOY 350 and for Control DOY 400"
+"0",""
+"0","meltdf <- melt(data_all_short,id=""doy_cont"")"
+"2","Warning:"
+"2"," attributes are not identical across measure variables; they will be dropped
+"
+"0","Gcc_plot<-ggplot(meltdf,aes(x=doy_cont,y=value,colour=variable,group=variable)) +"
+"0"," geom_line()  + labs(y= ""GCC"", x = ""Continuous day of year (2020-21)"")"
+"0","Gcc_plot + geom_point() + scale_fill_discrete(name = ""Landcover"", labels = c(""Treatment"", ""Control""))"
+"2","Warning:"
+"2"," Removed 60 rows containing missing values (geom_point).
+"

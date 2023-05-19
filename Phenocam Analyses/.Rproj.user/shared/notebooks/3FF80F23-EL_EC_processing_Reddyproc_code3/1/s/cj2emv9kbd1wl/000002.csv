@@ -1,0 +1,5 @@
+"0","```r
+# inspect the thresholds to be used by default
+EProc$sGetEstimatedUstarThresholdDistribution()
+EProc$sGetUstarScenarios()
+```"

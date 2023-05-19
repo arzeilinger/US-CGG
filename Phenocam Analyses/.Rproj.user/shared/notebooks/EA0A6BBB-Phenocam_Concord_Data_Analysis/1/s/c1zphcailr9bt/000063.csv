@@ -1,0 +1,1 @@
+"0","lines(data_all_short_gf$Date, mod.ss_tr$y, lty = 2, col = 2, lwd = 2)"

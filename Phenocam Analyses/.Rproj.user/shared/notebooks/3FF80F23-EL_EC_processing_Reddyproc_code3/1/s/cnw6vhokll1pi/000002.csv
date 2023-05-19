@@ -1,0 +1,27 @@
+"0","```r
+
+##If it says time stamp is not equidistant:
+  #make sure there are no NANs in the timestamp column in the .txt file. Resaving the file itself won't work, need to also resource it again above to \"refresh\" it. Seems theres alyways NaNs at the end of the file. 
+  #Make sure to save it as a txt after editing the csv.
+  #If its not the above then timestamp might actually not be equidistant. Possible error when merging using the first code (el_spec, seems to be an issue with YSI data sometimes).The rows it lists are when the timestamp repeats  
+
+# or you need at least 90 days worth of data
+
+EProc <- sEddyProc$new('Eden_Landing',
+                       Data = EddyDataWithPosix,
+                       ColNames = c(flux.var,met.var),
+                       ColPOSIXTime = 'TIMESTAMP',
+                       LatDeg = 37.615620, LongDeg = -122.1140, TimeZoneHour = -7)
+
+
+plot(EddyData$TIMESTAMP,EddyDataWithPosix$TIMESTAMP)
+
+#plot(EddyDataWithPosix$TIMESTAMP,EddyDataWithPosix$h2o_flux)
+#plot(EddyDataWithPosix$h2o_flux)
+
+#37° 36' 56.231'' N
+#122° 06' 50.257'' W
+
+# Lat/long and time zone to compute sunrise and sunset, used to differentiate daytime/nighttime.
+EProc$sSetLocationInfo(LatDeg = 37.615620, LongDeg = -122.1140, TimeZoneHour = -8)
+```"

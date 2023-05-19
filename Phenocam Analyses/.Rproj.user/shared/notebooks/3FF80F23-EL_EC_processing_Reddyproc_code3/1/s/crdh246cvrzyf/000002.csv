@@ -1,0 +1,8 @@
+"0","```r
+
+EddyDataWithPosix$VPD<-rH.to.VPD(EddyDataWithPosix$rH/100, EddyDataWithPosix$Tair, Esat.formula = c(\"Sonntag_1990\", \"Alduchov_1996\",
+  \"Allen_1998\"), constants = bigleaf.constants())
+
+EddyDataWithPosix
+
+```"

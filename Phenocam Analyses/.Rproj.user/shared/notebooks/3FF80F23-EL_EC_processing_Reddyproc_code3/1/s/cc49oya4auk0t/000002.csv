@@ -1,0 +1,9 @@
+"0","```r
+## Nighttime-based approach, partition all NEEs (e.g., NEE_ustar,NEE_U50,...) to corresponding GPP/RECO 
+
+EProc$sMRFluxPartitionUStarScens(TempVar = 'Tair',parsE0Regression=list(TempRange = 3)) # specify which temperature to use for building respiration model
+
+#EddyProc.C$sMRFluxPartition(parsE0Regression=list(TempRange.n=2.0))
+
+#EProc$sMRFluxPartition(parsE0Regression=list(TempRange.n=2.0))
+```"

@@ -1,0 +1,28 @@
+{
+    "id": "595378C9",
+    "path": null,
+    "project_path": null,
+    "type": "object_explorer",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1661165022263.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "id": "b035335f3d2d4d70b373b9c3d7bb7dfa",
+        "name": "mod.ss_con",
+        "title": "mod.ss_con",
+        "language": "R",
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1661164277,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1661165022263,
+    "read_only": false,
+    "read_only_alternatives": []
+}

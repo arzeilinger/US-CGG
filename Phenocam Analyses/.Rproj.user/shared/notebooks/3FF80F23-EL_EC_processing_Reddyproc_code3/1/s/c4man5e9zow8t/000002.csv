@@ -1,0 +1,4 @@
+"0","```r
+#+++ Replace long runs (repeated constants) of flux variables by NA
+EddyData <- filterLongRuns(EddyData, flux.var)
+```"

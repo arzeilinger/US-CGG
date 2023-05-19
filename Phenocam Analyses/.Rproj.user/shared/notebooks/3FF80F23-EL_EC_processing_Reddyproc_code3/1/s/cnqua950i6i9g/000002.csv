@@ -1,0 +1,12 @@
+"0","```r
+#Met vars used in ANN for CH4: #TS_25cm, #TA, #PA, #PAR, #WT,
+#Flux vars used in ANN for CH4: #Mdate, #3ustar, gpp_annnight, #er_annnight, #LE
+
+#    It loops through gaps, and fill them iteratively by diff environmental condition, window size 
+#EProc$sMDSGapFillUStarScens('ch4_flux',
+#                            V1 = 'H', ## 
+#                            V2 = 'Tsoil', T2 = 2,  
+#                            V3 = 'Rg', T3 = 30, ## 'Tair' within +/-2 degC
+#                            FillAll = TRUE)
+
+```"

@@ -1,0 +1,4 @@
+"0","```r
+grep(\"H_.*_f$\",names(EProc$sExportResults()), value = TRUE)
+grep(\"H_.*_fsd$\",names(EProc$sExportResults()), value = TRUE)
+```"

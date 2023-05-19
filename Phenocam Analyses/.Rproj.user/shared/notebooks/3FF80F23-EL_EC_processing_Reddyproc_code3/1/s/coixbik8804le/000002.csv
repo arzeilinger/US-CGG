@@ -1,0 +1,17 @@
+"0","```r
+# get a list of Reco and GPP_f by the respective ustar thresholds
+
+grep(\"GPP.*_f$|Reco\",names(EProc$sExportResults()), value = TRUE)
+
+gppreco.var.nt <- grep(\"GPP.*_f$|Reco.*\",names(EProc$sExportResults()), value = TRUE)
+#gppreco.var.nt <- gppreco.var.nt[-which(grepl(\"_SD\",gppreco.var.nt))]
+
+for(i in 1:length(gppreco.var.nt)){
+  
+  EProc$sPlotDiurnalCycle(gppreco.var.nt[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(gppreco.var.nt[i],
+                      Dir = out.dir)
+  
+}
+```"

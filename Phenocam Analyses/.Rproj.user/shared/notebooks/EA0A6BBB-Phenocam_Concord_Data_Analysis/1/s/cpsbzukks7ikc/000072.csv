@@ -1,0 +1,114 @@
+"0","#create date column"
+"0","data_all_short$Date <-as.Date(data_all_short$doy_cont, origin = ""2019-12-31"")"
+"0","#data_all_short$Date<-as.Date(with(data_all_short,paste(year,month,day,sep=""-"")),""%Y-%m-%d"")"
+"0",""
+"0","#Fill in missing days"
+"0","ts <- seq.POSIXt(as.POSIXct(""2020-09-11"",'%Y-%m-%d'), as.POSIXct(""2021-08-26"",'%Y-%m-%d'), by=""day"")"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(x, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(as.POSIXlt(x, tz, ...), tz, ...) :"
+"2","
+ "
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(xx, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(x) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in strptime(x, f, tz = tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXct.POSIXlt(as.POSIXlt(x, tz, ...), tz, ...) :"
+"2","
+ "
+"2"," unknown timezone '%Y-%m-%d'
+"
+"2","Warning in as.POSIXlt.POSIXct(x, tz) :"
+"2"," unknown timezone '%Y-%m-%d'
+"
+"0","ts <- seq.POSIXt(as.POSIXlt(""2020-09-11""), as.POSIXlt(""2021-08-26""), by=""day"")"
+"0","ts <- format.POSIXct(ts,'%Y-%m-%d')"
+"0","df <- data.frame(Date=ts)"
+"0","# df$Date <- format(as.Date(df$Date), ""%Y/%m/%d"")"
+"0","# summary(df)"
+"0","# summary(data_all_short$Date)"
+"0","# data_all_short$Date<-as.character(data_all_short$Date)"
+"0","data_all_short$Date<-as.Date(data_all_short$Date)"
+"0","df$Date<-as.Date(df$Date)"
+"0","data_all_short_no_gaps <- full_join(df,data_all_short,.,by=""Date"")"
+"0",""
+"0",""
+"0","#Gapfill gcc data"
+"0","data_all_short_gf<-data_all_short_no_gaps"
+"0",""
+"0","gcc_daily_con_int<-interpolate_gaps(data_all_short_gf[,""gcc_daily_con""])"
+"0","data_all_short_gf[,""gcc_daily_con""]<-gcc_daily_con_int$interp"
+"0","data_all_short_gf[,""gcc_daily_con_interpolated""]<-gcc_daily_con_int$missing"
+"0",""
+"0","gcc_daily_trt_int<-interpolate_gaps(data_all_short_gf[,""gcc_daily_tr""])"
+"0","data_all_short_gf[,""gcc_daily_tr""]<-gcc_daily_trt_int$interp"
+"0","data_all_short_gf[,""gcc_daily_tr_interpolated""]<-gcc_daily_trt_int$missing"
+"0",""
+"0","gcc_daily_doy_int<-interpolate_gaps(data_all_short_gf[,""doy_cont""])"
+"0","data_all_short_gf[,""doy_cont""]<-gcc_daily_doy_int$interp"
+"0","data_all_short_gf[,""doy_cont_interpolated""]<-gcc_daily_doy_int$missing"
+"0","#drop decimal on doy column"
+"0","data_all_short_gf$doy_cont<-floor(data_all_short_gf$doy_cont)"
+"0","plot(data_all_short_gf$doy_cont)"

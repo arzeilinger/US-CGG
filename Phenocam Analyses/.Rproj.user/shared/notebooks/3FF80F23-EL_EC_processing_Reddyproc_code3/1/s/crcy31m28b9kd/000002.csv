@@ -1,0 +1,13 @@
+"0","```r
+# get a list of gap-filled h2o_flux, based on diff ustar thresholds
+flux.gf.var <- grep(\"h2o_flux_.*_f$\",names(EProc$sExportResults()), value = TRUE)
+
+for(i in 1:length(flux.gf.var)){
+  
+  EProc$sPlotDiurnalCycle(flux.gf.var[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(flux.gf.var[i],
+                      Dir = out.dir)
+  
+}
+```"
