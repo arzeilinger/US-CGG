@@ -1,0 +1,57 @@
+concord_filter<-function(data.in){
+  
+  ## Change units
+  data.in$w.co2_cov<-data.in$w.co2_cov*1000
+  data.in$sonic_temperature<-data.in$sonic_temperature-273.15
+  
+  ## QC filtering
+  # coordinate rotation angle
+  data.in[!is.na(data.in$pitch)&abs(data.in$pitch)>6,c("co2_flux","H","LE",
+                                                       "w.co2_cov","w.h2o_cov","w.ts_cov")]<-NA
+  # statistics of sonic-T
+  data.in[!is.na(data.in$w.ts_cov)&
+            abs(data.in$w.ts_cov)>0.3,c("w.ts_cov")]<-NA
+  data.in[!is.na(data.in$ts_var)&
+            abs(data.in$ts_var)>1,c("ts_var")]<-NA
+  
+  # LI7500 signal strength
+  data.in[!is.na(data.in$co2_signal_strength_7500_mean)&
+            data.in$co2_signal_strength_7500_mean<85,c("co2_flux","LE",
+                                                       "w.co2_cov","w.h2o_cov",
+                                                       "co2_var","h2o_var",
+                                                       "co2_molar_density","h2o_molar_density")]<-NA
+  # H2O statistics
+  data.in[!is.na(data.in$h2o_molar_density)&
+            data.in$h2o_molar_density>2000,c("h2o_var",
+                                             "h2o_molar_density")]<-NA
+  data.in[!is.na(data.in$h2o_var)&
+            data.in$h2o_var>3000,c("h2o_var",
+                                   "h2o_molar_density")]<-NA
+  data.in[!is.na(data.in$w.h2o_cov)&
+            abs(data.in$w.h2o_cov-5.5)>6.5,c("LE",
+                                             "w.h2o_cov",
+                                             "h2o_var",
+                                             "h2o_molar_density")]<-NA
+  # CO2 statistics
+  data.in[!is.na(data.in$co2_molar_density)&
+            data.in$co2_molar_density<12,c("co2_var",
+                                           "co2_molar_density")]<-NA
+  data.in[!is.na(data.in$co2_var)&
+            data.in$co2_var>0.02,c("co2_var",
+                                   "co2_molar_density")]<-NA
+  data.in[!is.na(data.in$w.co2_cov)&
+            abs(data.in$w.co2_cov-(-15))>35,c("co2_flux",
+                                              "w.co2_cov",
+                                              "co2_var",
+                                              "co2_molar_density")]<-NA
+  
+  # Stationary / Integral Turbulence Characteristics (Foken flag)
+  # check which system is used (0-1-2 or 1-9)
+  data.in$co2_flux[!is.na(data.in$qc_co2_flux)&data.in$qc_co2_flux>1]<-NA
+  data.in$H[!is.na(data.in$qc_H)&data.in$qc_H>1]<-NA
+  data.in$LE[!is.na(data.in$qc_LE)&data.in$qc_LE>1]<-NA
+  
+  return(data.in)
+  
+}
+

@@ -1,0 +1,2 @@
+"term","estimate","std.error","statistic","p.value"
+"cdata$E_ng[cdata$TIMESTAMP > as.POSIXct(""2019-10-31"") & cdata$TIMESTAMP < as.POSIXct(""2020-11-01"")]",0.618306540898159,0.0024080303178149,256.768586476613,0

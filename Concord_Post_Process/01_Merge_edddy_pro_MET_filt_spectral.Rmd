@@ -1,0 +1,2636 @@
+---
+title: "Concord_spec_Tommy.With loops"
+output: html_notebook
+#history of version
+---
+
+```{r}
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+require(openair)
+
+source("concord_filter.R")
+source("cospectra_plot3.R")
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+
+library(modelsummary)
+
+
+
+
+```
+
+# Defining the data I/O directory #
+hc: define all I/O upfront and reuse them for consistency
+
+
+
+
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\tfens\\R_REPOS\\Flux_processing\\Concord_R_Code\\Concord_Post_Process\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord\\"
+
+eddypro.path<-paste0(root.path,"01_data\\Master_MET_Eddy\\")## this is where the EddyPro outputs located
+
+path.in_met<-paste0(root.path,"01_data\\Master_MET_Eddy\\")
+
+plot.path<-paste0(root.path,"02_output\\02_spectrum_plot\\") ## this is where the output plots located
+
+
+# hc: Use this for storing combined file
+path.out<-paste0(root.path,"02_output\\03_Met_Eddy_combined\\",sep="")
+
+```
+
+# Define file naming / version used
+hc: Keep anything that needs to change regularly here
+
+```{r}
+## use follows to specify the versions of EddyPro outputs
+# file name of the master EddyPro file
+cdata.file2<-paste0("master_eddy_pro_concord.csv")
+
+## Use follows to define binned spectrum file names
+cdata.proc.time<-"2020-04-17T161020"
+cdata.proc.ext<-"_adv"
+#20190614-1700_binned_cospectra_2020-04-17T161020_adv
+
+## use follows to specify the versions of master met file
+file.name<-paste0("MET_data_master.csv")
+
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\master_eddy_pro_concord.csv"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\eddypro_binned_cospectra"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\eddypro_full_cospectra"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\spectrum_plot"
+
+```
+
+# Read in EddyPro fulloutput file
+#parse variable names and define N/As 
+#remove time periods that does not have enough record of high frequency data
+
+```{r}
+## read in full output file
+cdata<-read.csv(paste(eddypro.path,cdata.file2,sep=""),
+                skip=3,
+                header=F,
+                na.strings="-9999",
+                stringsAsFactors=F)
+colnames(cdata)<-colnames(read.csv(paste(eddypro.path,cdata.file2,sep=""),
+                                   skip=1,
+                                   header=T,
+                                   na.strings="NaN"))
+
+cdata<-cdata[cdata$filename!="not_enough_data"&
+               !is.na(cdata$used_records),]
+
+head(cdata)
+tail(cdata)
+
+```
+
+# Read in Met data master file
+# parse variable names and define N/As, NAN, -7999
+
+```{r}
+met_data_master<-read.csv(paste(path.in_met,file.name,sep=""),
+                          header=F,
+                          skip=4,
+                          na.strings=c("NAN","-7999"),
+                          stringsAsFactors = F)
+colnames(met_data_master)<-colnames(
+  read.csv(paste(path.in_met,file.name,sep=""),
+           header=T,
+           skip= 1))
+
+head(met_data_master)
+tail(met_data_master)
+
+
+
+
+```
+
+# Parsing time stamp of cdata (EddyPro file)
+<!-- * converting it into a POSIXlt vector* -->
+<!-- * interpreting date and time into new timestamp column* -->
+<!-- ** Then taking that time stamp column and turning each time into a unique number (time.id) so I can join based on that. As it can be really tricky to join/merge based on time stamps alone** -->
+<!-- ** Or I could make sure both time stamps are characters and match them that way** -->
+<!-- ** Finally ploting time.id to make sure my times translate linearily** -->
+
+
+```{r}
+cdata$TIMESTAMP<-strptime(paste(cdata$date,cdata$time,sep=" "),
+                          format="%m/%d/%Y %H:%M", 
+                          tz = "Etc/GMT-8")
+
+#cdata$TIMESTAMP=cdata$TIMESTAMP+1800 don't need to add 1800. already in endtime format
+#cdata$TIMESTAMP=cdata$TIMESTAMP #just rename it end. so that we know
+
+cdata$time.id<-cdata$TIMESTAMP$year+1900+
+  (cdata$TIMESTAMP$yday)/366+
+  (cdata$TIMESTAMP$hour)/366/24+ 
+  (cdata$TIMESTAMP$min)/366/24/60
+
+cdata$time.id[1:50]
+plot(cdata$TIMESTAMP,cdata$time.id)
+which(duplicated(cdata$time.id))
+```
+# Parsing time stamp of cdata (Met file)
+**Taking the met_data and turning the time stamp into posixt format**
+**creating a time id for the MET Data so I I can join the MET and Eddy Pro Data**
+
+```{r}
+met_data_master$TIMESTAMP<-strptime(met_data_master$TIMESTAMP,
+                                    format ="%m/%d/%Y %H:%M",
+                                    tz = "Etc/GMT-8")
+
+met_data_master$time.id <-met_data_master$TIMESTAMP$year+1900+
+  (met_data_master$TIMESTAMP$yday)/366+
+  (met_data_master$TIMESTAMP$hour)/366/24+
+  (met_data_master$TIMESTAMP$min)/366/24/60 
+
+met_data_master$time.id[1:20]
+plot(met_data_master$TIMESTAMP,met_data_master$time.id)
+
+
+which(duplicated(met_data_master$time.id))
+
+#removing duplicated rows
+met_data_master<-met_data_master[!duplicated(met_data_master$time.id), ]
+
+#checking that this worked
+which(duplicated(met_data_master$time.id))
+
+head(met_data_master)
+met_data_master$TIMESTAMP[1:20]
+
+
+```
+
+# Create a full timestamp without gaps 
+*Create a full timestamp based on the earliest and latest timestamps in EddyPro and Met files*
+*Use this full timestamp later when merging EddyPro and master met files*
+
+```{r}
+# create a full timestamp, 30 mins
+full.time<-data.frame(TIMESTAMP=
+                        seq.POSIXt(min(min(met_data_master$TIMESTAMP),min(cdata$TIMESTAMP)),
+                                   max(max(met_data_master$TIMESTAMP),max(cdata$TIMESTAMP)),
+                                   units = "seconds", by = 1800),
+                      stringsAsFactors=F)
+
+full.time$TIMESTAMP<-strptime(full.time$TIMESTAMP,
+                              format ="%Y-%m-%d %H:%M:%S",
+                              tz = "Etc/GMT-8")
+
+full.time$time.id <-full.time$TIMESTAMP$year+1900+
+  (full.time$TIMESTAMP$yday)/366+
+  (full.time$TIMESTAMP$hour)/366/24+
+  (full.time$TIMESTAMP$min)/366/24/60 
+
+print(paste("Starting timestamp:",full.time$TIMESTAMP[1]))
+print(paste("Ending timestamp:",full.time$TIMESTAMP[nrow(full.time)]))
+
+head(full.time)
+
+
+```
+
+#Joining the Met_Data and Eddy Pro Data Sets 
+*using time stamp from the full.time dataframe*
+*Also create a doy.id, unique for each date, later used in aggregating daily values*
+
+```{r}
+
+cdata<- merge.data.frame(full.time,
+                         cdata[,-which(colnames(cdata)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+#all=true what ever appears in each file is show in the file data file. sort tries to sort each data frame by merging. in this case probably doesnot matter. timestamp
+
+cdata<- merge.data.frame(cdata,
+                         met_data_master[,-which(colnames(met_data_master)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+
+
+
+#seeing which rows are duplicated
+which(duplicated(cdata$TIMESTAMP))
+
+
+#removing duplicated rows
+# cdata<-cdata[!duplicated(cdata$TIMESTAMP), ]
+# 
+# #checking that this worked
+# which(duplicated(cdata$TIMESTAMP))
+
+## create a unique DOY id 
+cdata$doy.id<-full.time$TIMESTAMP$year+1900+
+  (full.time$TIMESTAMP$yday)/366
+
+colnames(cdata)
+cdata
+
+```
+
+#Creating a CSV File of my combined Master File!#
+#hc: modify the filename starting with Date when the file is created
+
+```{r}
+write.csv(cdata,
+          paste(path.out,Sys.Date(),"_master_eddy_met_concord_prefiltering.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+#Filter data based on predefined criteria
+#filtering criteria are defined in concord_filter function
+# A few variables also convert Unit 
+
+
+
+
+```{r}
+# plot(
+#   cdata$Correct_NR[cdata$wind_dir >= 230 &
+#                               cdata$wind_dir <= 300 &
+#                               cdata$daytime == 0 &
+#                               cdata$u. > 0.1],
+#   cdata$co2_flux[cdata$wind_dir >= 230 &
+#                    cdata$wind_dir <= 300 & cdata$daytime == 0 & cdata$u. > 0.1],
+#   # xaxt= 'n',
+#   # yaxt= 'n',
+#   abline(h = 0, col = "darkgrey"),
+#   ylim = c(-20, 20),
+#   xlim = c(0, 600),
+#   xlab = 'Net Radiation',
+#   ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+#     -2
+#   } ~ s ^ {
+#     -1
+#   } ~ ')'),
+#   
+#   #main='Night time fluxes by Net Radiation',
+#   
+#   cex = 0.6,
+#   col = "red"
+# )
+
+# plot(cdata$RH)
+# 
+# plot(cdata$RH_Avg)
+# 
+# plot(cdata$VPD)
+# 
+# plot(cdata$time.id, cdata$PAR_in_w_m_2
+
+# ylim = c(0,750),
+# xlim = c(2019.928, 2020.9)
+#)
+```
+
+
+```{r}
+
+cdata<-concord_filter(data.in=cdata)
+
+colnames(cdata)
+
+```
+
+
+
+
+
+#Creating a CSV File of combined Master File (post-filtering)
+<!-- hc: modify the filename starting with Date when the file is created -->
+
+<!-- write.csv(cdata, -->
+<!-- paste(eddypro.path,ver,"cdata",sep=""), -->
+<!-- quote = T, -->
+<!-- row.names = F) -->
+
+```{r}
+write.csv(cdata,
+          paste(path.out,Sys.Date(),"_master_eddy_met_concord_postfiltering.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+#Generate simple timeseries plots
+**post-filtered time series plot per variable**
+**LOESS fit and daily average are plotted to show temporal dynamics**
+
+```{r}
+
+#summary(cdata)
+##############################################################
+## Generic time series plot
+target.plot.var<-c("co2_flux","LE","H","u.",
+                   "co2_mixing_ratio","h2o_mixing_ratio",
+                   "air_temperature_adj","RH_Avg",
+                   "wind_speed","wind_dir","mean_value_RSSI_LI.7500", 
+                   "AirT_Avg", "Correct_NR",  "Correct_shf_1" , "Correct_shf_2",
+                   "VWC_Avg","Precip_mm_Tot" ,
+                   "PAR_in_uEm2_Avg","PAR_out_uEm2_Avg",
+                   "Rg",
+                   "AtmPressure_Avg",
+                   "TC_Avg.1.","TC_Avg.2.","TC_Avg.3.","TC_Avg.4.","TC_Avg.5.")
+target.plot.var.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')'),
+                         expression(CO[2]~'('~ppm~')'),
+                         expression(Water~vapor~'('~ppt~')'),
+                         expression(Air~temperature~'('~degree~C~')'),
+                         expression(Relative~humidity~'('~percent~')'),
+                         expression(Wind~speed~'('~m~s^{-1}~')'),
+                         expression(Wind~direction~'('~degree~')'),
+                         expression(LI7500~signal~strengh ~'('~'-'~')'),
+                         expression(Air~temperature~MET~'('~degree~C~')'),
+                         expression(Net~Radiation~'('~W~m^{-2}~')'),
+                         expression(Soil~Heatflux1~'('~W~m^{-2}~')'),
+                         expression(Soil~Heatflux2~'('~W~m^{-2}~')'),
+                         expression(Soil~water~content~'('~m^{3}~m^{-3}~')'),
+                         expression(Precipitation~'('~mm~')'),
+                         expression(Incoming~PAR~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(Outgoing~PAR~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(Rg~'('~W~m^{-2}~')'),
+                         expression(Atmospheric~pressure~'('~kPa~')'),
+                         expression(Soil~temperature~1~'('~degree~C~')'),
+                         expression(Soil~temperature~2~'('~degree~C~')'),
+                         expression(Soil~temperature~3~'('~degree~C~')'),
+                         expression(Soil~temperature~4~'('~degree~C~')'),
+                         expression(Soil~temperature~5~'('~degree~C~')'))  
+
+for(k1 in 1:length(target.plot.var)){
+  
+  ## locate the start of each month
+  month.loc<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks <- seq(cdata$TIMESTAMP[month.loc[1]],
+                     cdata$TIMESTAMP[month.loc[length(month.loc)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var[k1],"_",
+             Sys.Date(),".png"),
+      width=6,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(0.5,0.5,0.5,0.5),mar=c(4,4.5,0,0))
+  plot(cdata$TIMESTAMP,
+       cdata[,target.plot.var[k1]],
+       xlab="TIMESTAMP",
+       ylab=target.plot.var.title[k1],
+       cex=0.5,col="grey",bg="lightgrey",
+       las=1,pch=21,
+       xaxs="i",yaxs="i"
+  )
+  
+  abline(h=0,col="darkgrey")
+  
+  ## daily averge line
+  daily.tmp<-data.frame(date=tapply(cdata$time.id,cdata$doy.id,min),
+                        daily=tapply(cdata[,target.plot.var[k1]],cdata$doy.id,na.mean))
+  
+  lines(cdata$TIMESTAMP[which(cdata$time.id %in% daily.tmp$date)],
+        daily.tmp$daily,
+        lwd=1.5,col="black")
+  
+  ## loess fit line
+  loess.tmp<-loess(cdata[,target.plot.var[k1]]~c(1:nrow(cdata)),span=0.1)
+  
+  ## avoid plotting long gaps
+  long.gap<-which(loess.tmp$x[-1]-loess.tmp$x[-length(loess.tmp$x)]>48*3)
+  
+  if(length(long.gap)>0){ ## skip if any long gaps
+    if(long.gap[1]>1) long.gap<-c(1,long.gap)
+    if(long.gap[length(long.gap)]<length(loess.tmp$x)) long.gap<-c(long.gap,length(loess.tmp$x))
+    
+    for(k1 in 1:(length(long.gap)-1)){
+      lines(cdata$TIMESTAMP[round(loess.tmp$x[c((long.gap[k1]+1):(long.gap[k1+1]-1))])],
+            loess.tmp$fitted[c((long.gap[k1]+1):(long.gap[k1+1]-1))],
+            lwd=1.5,col="red")
+    }  
+  }else{
+      lines(cdata$TIMESTAMP[round(loess.tmp$x)],
+            loess.tmp$fitted,
+            lwd=1.5,col="red")
+  }
+
+  axis(1, at = month.ticks, labels = FALSE, tcl = -0.3)
+  dev.off()
+}
+
+```
+
+
+#Generate timeseries plots color-coded by wind direction
+*similar plot as previous time series plot*
+*Color-coded data points based on wind direction, currently 2 groups*
+**hc: Revise thresholds for WD groups if needed**
+
+```{r}
+
+##############################################################
+## Generic time series plot
+WD.grp<-rep(2,nrow(cdata))
+WD.grp[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>120&cdata$wind_dir<=300))]<-1
+WD.legend<-c("Southwest wind","Northeast wind")
+WD.col<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var<-c("co2_flux","LE","H","u.")
+target.plot.var.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')'))  
+
+for(k1 in 1:length(target.plot.var)){
+  
+  ## locate the start of each month
+  month.loc<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks <- seq(cdata$TIMESTAMP[month.loc[1]],
+                     cdata$TIMESTAMP[month.loc[length(month.loc)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$TIMESTAMP,
+       cdata[,target.plot.var[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=WD.col[WD.grp],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var.title[k1],line=3)
+  mtext(side=1,"TIMESTAMP",line=2.8)
+  abline(h=0,col="darkgrey")
+  axis(1, at = month.ticks, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0<-hist(cdata[,target.plot.var[k1]],
+              plot=F,nclass=50)
+  hist1<-hist(cdata[,target.plot.var[k1]][WD.grp==1],
+              plot=F,breaks=hist0$breaks)
+  hist2<-hist(cdata[,target.plot.var[k1]][WD.grp==2],
+              plot=F,breaks=hist0$breaks) 
+  
+  barplot(hist1$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1$breaks)+1),
+          xlim=c(-5,max(c(hist1$counts,hist2$counts))),
+          space=0,col=WD.col[1],border=NA) # barplot
+  barplot(hist2$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1$breaks)+1),
+          xlim=c(-5,max(c(hist1$counts,hist2$counts))),
+          space=0,col=WD.col[2],border=NA) # barplot
+  legend(0,
+         length(hist1$breaks)+1,
+         fill=WD.col,border=NA,
+         legend=WD.legend,bty="n",
+         cex=0.9)
+  dev.off()
+}
+
+```
+
+#Windrose plot 
+A simple windrose plot, using openair package
+
+```{r}
+
+png(paste0(plot.path,
+           "Concord_",
+           cdata$TIMESTAMP$year[1]+1900,"_",
+           cdata$TIMESTAMP$yday[1]+1,"_",
+           cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+           cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+           "Windrose_",
+           Sys.Date(),".png"),
+    width=5,height=5,units="in",res=300,pointsize=10)
+
+openair::windRose(mydata=cdata[,c("wind_speed","wind_dir")],
+                  ws="wind_speed",
+                  wd="wind_dir",
+                  ws.int = 0.5, angle = 15,
+                  dig.lab=2,
+                  paddle=F,key.position = "bottom")
+
+dev.off()
+
+```
+
+
+
+```{r}
+colnames(cdata)
+```
+
+
+#Net Exchange of Co2 by U*. filter by night time and day time
+```{r}
+######################################################################
+#Daytime and nighttime plot
+scatter.smooth( cdata$u., cdata$co2_flux,
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'), 
+               main='Daytime and Nighttime')
+
+#day and night linear relationship
+lm_all_time<- lm(u. ~
+                   co2_flux  
+                   
+, 
+data = cdata)
+
+summary(lm_all_time)
+
+#############################################
+#Daytime plot
+scatter.smooth(subset(cdata, daytime=='1')$u.,
+     subset(cdata, daytime=='1')$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'), 
+               main='Daytime ')
+
+#####################################################################
+#daytime linear relationship between co2 flux and U&
+lm_day_time<- lm(subset(cdata, daytime=='1')$u. ~
+                   subset(cdata, daytime=='1')$co2_flux 
+                   
+, 
+data = cdata)
+
+summary(lm_day_time)
+########################################################
+#Nighttime plot feb_march
+smoothScatter(subset(cdata, daytime=='0'& DOY>31 & DOY <120)$u.,
+     subset(cdata, daytime=='0'& DOY>31 & DOY <120 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'), 
+               main='Nighttime ',
+      cex= 0.5)
+
+#nighttime linear relationship between co2 flux and U&
+lm_night_time_feb_mar<- lm(subset(cdata, daytime=='0'& DOY>31 & DOY <120)$u.~
+     subset(cdata, daytime=='0'& DOY>31 & DOY <120 )$co2_flux
+, data = cdata)
+
+summary(lm_night_time_feb_mar)
+
+
+
+#######################################
+#Nighttime plot Dry Season. May 1(121) -Nov 1(305)
+scatter.smooth(subset(cdata, daytime=='0'& DOY>120 & DOY <306)$u.,
+     subset(cdata, daytime=='0'& DOY>120 & DOY <306 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime Dry Season (May 1- Nov. 1) ',
+      cex= 0.5)
+
+##############################
+#Nighttime plot Wet Season, Nov 2- April 30
+
+scatter.smooth(subset(cdata, daytime=='0'& DOY>305 | DOY <121)$u.,
+     subset(cdata, daytime=='0'& DOY>305 | DOY <121 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime Wet Growing Season (Nov 2- April 30) ',
+      cex= 0.5)
+
+
+
+
+#######################################
+#Nighttime plot temperatutre 0-5 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=0 & air_temperature_adj <=5)$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>0 & air_temperature_adj <=5 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime 0-5 C ',
+      cex= 0.5)
+
+#Nighttime plot temperatutre 5-10 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=5 & air_temperature_adj <=10)$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>=5 & air_temperature_adj <=10 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime 5-10 C ',
+      cex= 0.5)
+
+#Nighttime plot temperatutre 10-15 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=10 & air_temperature_adj <=15)$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>=10 & air_temperature_adj <=15 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime 10-15 C ',
+      cex= 0.5)
+
+#Nighttime plot temperatutre 15-20 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=15 & air_temperature_adj <=20)$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>=15 & air_temperature_adj <=20 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime 15-20 C ',
+      cex= 0.5)
+
+
+#Nighttime plot temperatutre 20-25 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=20 & air_temperature_adj <=25)$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>=20 & air_temperature_adj <=25 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime 20-25 C ',
+      cex= 0.5)
+
+#Nighttime plot temperatutre 25-30 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=25 & air_temperature_adj <=30)$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>=25 & air_temperature_adj <=30 )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime 25-30 C ',
+      cex= 0.5)
+
+#Nighttime plot temperatutre greater than 30 C
+scatter.smooth(subset(cdata, daytime=='0'& air_temperature_adj>=30 )$u.,
+     subset(cdata, daytime=='0'& air_temperature_adj>=30  )$co2_flux, 
+     
+               ylab=expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'), 
+               xlab= expression(u['*']~'('~m~s^{-1}~')'),
+     ylim = c(0,10),
+               main='Nighttime Greater than 30 C ',
+      cex= 0.5)
+
+
+
+################################################
+#u* by temperature
+
+scatter.smooth(cdata$u., 
+      cdata$air_temperature_adj,
+               xlab=expression(u['*']~'('~m~s^{-1}~')'), 
+               ylab= expression(Air~temperature~'('~degree~C~')'), 
+               main=' ')
+
+#nighttime linear relationship between co2 flux and U&
+lm_air_temp_u<- lm(u. ~
+                     air_temperature_adj
+, data = cdata)
+
+summary(lm_air_temp_u)
+
+
+
+```
+
+#diurnal pattern of soil heat flux plate 1. Also did 2 to see if it is correct. SHF1 is wack for June. 
+
+#Looks like it began messing up in May
+
+#plot(tapply(combo_master_ed_met$LE ,round(combo_master_ed_met$DOY),function(x) mean(x,na.rm=T))
+#subset(cdata, daytime=='0'& DOY>120 & DOY <306)$u
+```{r}
+
+#all time pattern of SHF1 plate
+plot(tapply(cdata$Correct_shf_1, cdata$time,function(x) mean(x,na.rm=T)), main= "SHF1 Alltime")
+
+#diurinal pattern SHF1 for April. # looks good
+plot(tapply(subset(cdata, DOY >= 92 & DOY<= 121)$Correct_shf_1, subset(cdata, DOY >= 92 & DOY<= 121) $time,function(x) mean(x,na.rm=T)), main= "SHF1 April")
+
+
+#diurinal pattern SHF1 for May.  looks wack. but not as bad as June
+plot(tapply(subset(cdata, DOY >= 122 & DOY<= 152)$Correct_shf_1, subset(cdata, DOY >= 122 & DOY<= 152) $time,function(x) mean(x,na.rm=T)), main= "SHF1 May")
+
+plot(tapply(subset(cdata, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$Correct_shf_1, subset(cdata, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$time,function(x) mean(x,na.rm=T)), main= "SHF1> July 21", xlab = "Every 30 minutes", ylab = "Soil Heat Flux")
+
+plot_July_2020<-plot(tapply(subset(cdata, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$Correct_shf_2, subset(cdata, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$time,function(x) mean(x,na.rm=T)), main= "SHF2> July 21", xlab = "Every 30 minutes", ylab = "Soil Heat Flux")
+
+
+
+
+#cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11
+# format="%m/%d/%Y %H:%M",  tz = "Etc/GMT-8")
+
+# #diurinal pattern SHF1 for June. # looks wack still filtered out
+# plot(tapply(subset(cdata, DOY >= 153 & DOY<= 178)$Correct_shf_1, subset(cdata, DOY >= 153 & DOY<= 178) $time,function(x) mean(x,na.rm=T)), main= "SHF1 June")
+
+####################################
+#SHF2 for comparison
+
+#all time pattern of SHF1 plate
+plot(tapply(cdata$Correct_shf_2, cdata$time,function(x) mean(x,na.rm=T)), main= "SHF2 All Time")
+
+#diurinal pattern SHF2 for April. # looks good
+plot(tapply(subset(cdata, DOY >= 92 & DOY<= 121)$Correct_shf_2, subset(cdata, DOY >= 92 & DOY<= 121) $time,function(x) mean(x,na.rm=T)), main= "SHF2 April")
+
+
+#diurinal pattern SHF2 for May. 
+plot(tapply(subset(cdata, DOY >= 122 & DOY<= 152)$Correct_shf_2, subset(cdata, DOY >= 122 & DOY<= 152) $time,function(x) mean(x,na.rm=T)), main= "SHF2 May")
+
+
+
+#diurinal pattern SHF2 for June. # looks good. So SHF1 is emitting noise. 
+plot(tapply(subset(cdata, DOY >= 153 & DOY<= 178)$Correct_shf_2, subset(cdata, DOY >= 153 & DOY<= 178) $time,function(x) mean(x,na.rm=T)), main= "SHF 2 June")
+
+
+```
+
+# Sensible Heat, Latent Heat U* and Co2 fluxes by Net radiation, seperated by wind directions
+#Treatment 150-230, Control 230-310
+```{r}
+WD.SE_LE_co2_by_NR<-rep(2,nrow(cdata))
+WD.SE_LE_co2_by_NR[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>150 & cdata$wind_dir<=230)& #treatment
+                !is.na(cdata$wind_dir),
+                   cdata$wind_dir>230 & cdata$wind_dir<=310)]<-1 #control
+Wd.legend_1<-c("150-230 wind ","230-310 wind")
+Wd.col_1<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var_1<-c("co2_flux","LE","H","u.")
+target.plot.var_1.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')')) 
+
+for(k1 in 1:length(target.plot.var_1)){
+  
+  ## locate the start of each month
+  month.loc1<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks1 <- seq(cdata$TIMESTAMP[month.loc1[1]],
+                     cdata$TIMESTAMP[month.loc1[length(month.loc1)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_H_LE_co2_1_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var_1[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$Correct_NR,
+       cdata[,target.plot.var_1[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=Wd.col_1[WD.SE_LE_co2_by_NR],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var_1.title[k1],line=3)
+  mtext(side=1,"Net Radiation",line=2.8)
+  abline(h=0,col="darkgrey")
+  axis(1, at = month.ticks1, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0A<-hist(cdata[,target.plot.var_1[k1]],
+              plot=F,nclass=50)
+  hist1A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==1],
+              plot=F,breaks=hist0A$breaks)
+  hist2A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==2],
+              plot=F,breaks=hist0A$breaks) 
+  
+  barplot(hist1A$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[1],border=NA) # barplot
+  barplot(hist2A$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[2],border=NA) # barplot
+  legend(0,
+         length(hist1A$breaks)+1,
+         fill=Wd.col_1,border=NA,
+         legend=Wd.legend_1,bty="n",
+         cex=0.9)
+  dev.off()
+}
+  
+```
+
+
+
+# Sensible Heat, Latent Heat U* and Co2 fluxes by Net radiation, seperated by wind directions
+#Treatment 150-230, Control 230-280
+```{r}
+WD.SE_LE_co2_by_NR<-rep(2,nrow(cdata))
+WD.SE_LE_co2_by_NR[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>150 & cdata$wind_dir<=230)& #treatment
+                !is.na(cdata$wind_dir),
+                   cdata$wind_dir>230 & cdata$wind_dir<=280)]<-1 #control
+Wd.legend_1<-c("150-230 wind ","230-280 wind")
+Wd.col_1<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var_1<-c("co2_flux","LE","H","u.")
+target.plot.var_1.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')')) 
+
+for(k1 in 1:length(target.plot.var_1)){
+  
+  ## locate the start of each month
+  month.loc1<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks1 <- seq(cdata$TIMESTAMP[month.loc1[1]],
+                     cdata$TIMESTAMP[month.loc1[length(month.loc1)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_H_LE_co2_2_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var_1[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$Correct_NR,
+       cdata[,target.plot.var_1[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=Wd.col_1[WD.SE_LE_co2_by_NR],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var_1.title[k1],line=3)
+  mtext(side=1,"Net Radiation",line=2.8)
+  abline(h=0,col="darkgrey")
+  axis(1, at = month.ticks1, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0A<-hist(cdata[,target.plot.var_1[k1]],
+              plot=F,nclass=50)
+  hist1A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==1],
+              plot=F,breaks=hist0A$breaks)
+  hist2A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==2],
+              plot=F,breaks=hist0A$breaks) 
+  
+  barplot(hist1A$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[1],border=NA) # barplot
+  barplot(hist2A$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[2],border=NA) # barplot
+  legend(0,
+         length(hist1A$breaks)+1,
+         fill=Wd.col_1,border=NA,
+         legend=Wd.legend_1,bty="n",
+         cex=0.9)
+  dev.off()
+}
+  
+```
+
+
+# Sensible Heat, Latent Heat U* and Co2 fluxes by Net radiation, seperated by wind directions
+#Treatment 120-300, Control 0-120 and 300-360
+```{r}
+WD.SE_LE_co2_by_NR<-rep(2,nrow(cdata))
+WD.SE_LE_co2_by_NR[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>120&cdata$wind_dir<=300))]<-1
+Wd.legend_1<-c("120-300 wind ","0-120 and 300-360 wind")
+Wd.col_1<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var_1<-c("co2_flux","LE","H","u.")
+target.plot.var_1.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')')) 
+
+for(k1 in 1:length(target.plot.var_1)){
+  
+  ## locate the start of each month
+  month.loc1<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks1 <- seq(cdata$TIMESTAMP[month.loc1[1]],
+                     cdata$TIMESTAMP[month.loc1[length(month.loc1)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_H_LE_co2_3_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var_1[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$Correct_NR,
+       cdata[,target.plot.var_1[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=Wd.col_1[WD.SE_LE_co2_by_NR],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var_1.title[k1],line=3)
+  mtext(side=1,"Net Radiation",line=2.8)
+  abline(h=0,col="darkgrey")
+  axis(1, at = month.ticks1, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0A<-hist(cdata[,target.plot.var_1[k1]],
+              plot=F,nclass=50)
+  hist1A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==1],
+              plot=F,breaks=hist0A$breaks)
+  hist2A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==2],
+              plot=F,breaks=hist0A$breaks) 
+  
+  barplot(hist1A$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[1],border=NA) # barplot
+  barplot(hist2A$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[2],border=NA) # barplot
+  legend(0,
+         length(hist1A$breaks)+1,
+         fill=Wd.col_1,border=NA,
+         legend=Wd.legend_1,bty="n",
+         cex=0.9)
+  dev.off()
+}
+  
+```
+
+
+# Sensible Heat, Latent Heat U* and Co2 fluxes by Net radiation, seperated by wind directions
+#Treatment 130-230, Control 230-330
+```{r}
+WD.SE_LE_co2_by_NR<-rep(2,nrow(cdata))
+WD.SE_LE_co2_by_NR[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>=130 & cdata$wind_dir<=230)& #treatment
+                !is.na(cdata$wind_dir),
+                   cdata$wind_dir>230 & cdata$wind_dir<=330)]<-1 #control
+Wd.legend_1<-c("130-230 wind ","230-330 wind")
+Wd.col_1<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var_1<-c("co2_flux","LE","H","u.")
+target.plot.var_1.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')')) 
+
+for(k1 in 1:length(target.plot.var_1)){
+  
+  ## locate the start of each month
+  month.loc1<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks1 <- seq(cdata$TIMESTAMP[month.loc1[1]],
+                     cdata$TIMESTAMP[month.loc1[length(month.loc1)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_H_LE_co2_4_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var_1[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$Correct_NR,
+       cdata[,target.plot.var_1[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=Wd.col_1[WD.SE_LE_co2_by_NR],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var_1.title[k1],line=3)
+  mtext(side=1,"Net Radiation",line=2.8)
+  abline(h=0,col="darkgrey")
+  axis(1, at = month.ticks1, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0A<-hist(cdata[,target.plot.var_1[k1]],
+              plot=F,nclass=50)
+  hist1A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==1],
+              plot=F,breaks=hist0A$breaks)
+  hist2A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==2],
+              plot=F,breaks=hist0A$breaks) 
+  
+  barplot(hist1A$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[1],border=NA) # barplot
+  barplot(hist2A$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[2],border=NA) # barplot
+  legend(0,
+         length(hist1A$breaks)+1,
+         fill=Wd.col_1,border=NA,
+         legend=Wd.legend_1,bty="n",
+         cex=0.9)
+  dev.off()
+}
+  
+```
+
+
+
+# Sensible Heat, Latent Heat U* and Co2 fluxes by Net radiation, seperated by wind directions
+#Treatment 150-225, Control 230-300
+```{r}
+WD.SE_LE_co2_by_NR<-rep(2,nrow(cdata))
+WD.SE_LE_co2_by_NR[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>=150 & cdata$wind_dir<=225)& #treatment
+                !is.na(cdata$wind_dir),
+                   cdata$wind_dir>=230 & cdata$wind_dir<=300)]<-1 #control
+Wd.legend_1<-c("150-225 wind ","230-300 wind")
+Wd.col_1<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var_1<-c("co2_flux","LE","H","u.")
+target.plot.var_1.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u['*']~'('~m~s^{-1}~')')) 
+
+for(k1 in 1:length(target.plot.var_1)){
+  
+  ## locate the start of each month
+  month.loc1<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks1 <- seq(cdata$TIMESTAMP[month.loc1[1]],
+                     cdata$TIMESTAMP[month.loc1[length(month.loc1)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_H_LE_co2_5_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var_1[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$Correct_NR,
+       cdata[,target.plot.var_1[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=Wd.col_1[WD.SE_LE_co2_by_NR],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var_1.title[k1],line=3)
+  mtext(side=1,"Net Radiation",line=2.8)
+  abline(h=0,col="darkgrey")
+  axis(1, at = month.ticks1, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0A<-hist(cdata[,target.plot.var_1[k1]],
+              plot=F,nclass=50)
+  hist1A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==1],
+              plot=F,breaks=hist0A$breaks)
+  hist2A<-hist(cdata[,target.plot.var_1[k1]][WD.SE_LE_co2_by_NR==2],
+              plot=F,breaks=hist0A$breaks) 
+  
+  barplot(hist1A$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[1],border=NA) # barplot
+  barplot(hist2A$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1A$breaks)+1),
+          xlim=c(-5,max(c(hist1A$counts,hist2A$counts))),
+          space=0,col=Wd.col_1[2],border=NA) # barplot
+  legend(0,
+         length(hist1A$breaks)+1,
+         fill=Wd.col_1,border=NA,
+         legend=Wd.legend_1,bty="n",
+         cex=0.9)
+  dev.off()
+}
+  
+```
+
+# night time co2 fluxes by Net radiation and wind direction
+#treatment 150-225, Control 230-300. My way of overlaying just to make sure above code is legit
+#does Net radiation  (categorical independent variable) have an impact on co2 fluxes 
+#covariate is treatment v.s control wind directions 
+
+```{r}
+
+
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                              cdata$daytime == 0 &
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Night time fluxes by Net Radiation',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 300 &
+                              cdata$daytime == 0 &
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Night time fluxes by Net Radiation',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+#all time fluxes by Net radiation filtering based on u*> 0.1
+```{r}
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                             
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225  & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  cex.lab=0.8,
+  
+  main = 'All fluxes by Net Radiation',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 330 &
+                            
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 330 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(-100, 700),
+  cex.lab= 0.8,
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Night time fluxes by Net Radiation',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+#ANCOVA comparison of co2 fluxes by NR for the treatment and control areas
+
+#With ustar filter of greater than 0.1
+
+
+
+```{r}
+
+
+#ANCOVA of different wind directions
+
+#Day and Night sorting for ANCOVA analysis
+cdata$day_and_night_wind_filter<-rep("exclude",nrow(cdata))
+
+cdata$day_and_night_wind_filter[which(!is.na(cdata$wind_dir)&
+                                 cdata$wind_dir>=150&
+                                 cdata$wind_dir<=225&
+                                cdata$u. > 0.1)]<-"treatment" 
+
+cdata$day_and_night_wind_filter[which(!is.na(cdata$wind_dir)&
+                                 cdata$wind_dir>=230&
+                                 cdata$wind_dir<=300&
+                                   cdata$u. > 0.1)]<-"control" 
+table(cdata$day_and_night_wind_filter)
+##############################################################################
+
+#nightime sorting of data for ANCOVA analysis
+cdata$night_wind_filter<-rep("exclude",nrow(cdata))
+
+cdata$night_wind_filter[which(!is.na(cdata$wind_dir)&
+                                 cdata$wind_dir>=150&
+                                 cdata$wind_dir<=225 & 
+                                cdata$u. > 0.1 &
+                                cdata$daytime== 0)]<-"treatment" 
+
+cdata$night_wind_filter[which(!is.na(cdata$wind_dir)&
+                                 cdata$wind_dir>=230&
+                                 cdata$wind_dir<=300 &
+                                cdata$u. > 0.1&
+                                 cdata$daytime== 0)]<-"control" 
+table(cdata$night_wind_filter)
+###########################################################################################
+#daytime sorting of data for ANCOVA analsi
+cdata$day_wind_filter<-rep("exclude",nrow(cdata))
+
+cdata$day_wind_filter[which(!is.na(cdata$wind_dir)&
+                                 cdata$wind_dir>=150&
+                                 cdata$wind_dir<=225 & 
+                                cdata$u. > 0.1 &
+                                cdata$daytime== 1)]<-"treatment" 
+
+cdata$day_wind_filter[which(!is.na(cdata$wind_dir)&
+                                 cdata$wind_dir>=230&
+                                 cdata$wind_dir<=300 &
+                                cdata$u. > 0.1&
+                                cdata$daytime== 1)]<-"control" 
+table(cdata$day_wind_filter)
+
+####################################################################################
+
+
+#ANCOVA of LE by NR>0
+#No significant difference
+LE_by_wind_NR <-lmer(LE ~ Correct_NR + day_and_night_wind_filter +(1|day_and_night_wind_filter),
+                  data = cdata[cdata$Correct_NR>0&
+                                 cdata$day_and_night_wind_filter!="exclude"&
+                                 (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+
+summary(LE_by_wind_NR)
+Anova(LE_by_wind_NR)
+
+#ANCOVA of LE by NR neg and pos (day and night time)
+#Don't do ANCOVA for night time radiation. just noise
+# summary(lm(LE ~ Correct_NR + day_and_night_wind_filter,
+#                   data = cdata[cdata$Correct_NR&
+#                                  cdata$day_and_night_wind_filter&cdata$DOY!="exclude"&
+#                                  (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),]))
+
+#ANCOVA of co2 flux by NR with NR>0 (day time)
+#No significant difference
+co2_by_NR_wind_dir <- lmer(co2_flux ~ Correct_NR + day_and_night_wind_filter +(1|day_and_night_wind_filter),
+                  data = cdata[cdata$Correct_NR>0&
+                                 cdata$day_and_night_wind_filter!="exclude"&
+                                 (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+summary(co2_by_NR_wind_dir)
+Anova(co2_by_NR_wind_dir)
+shapiro.test(resid(co2_by_NR_wind_dir))
+
+
+#ANCOVA of co2 flux by NR with NR neg and pos (day and night time)
+#No significant difference
+# summary(lm(co2_flux ~ Correct_NR + day_and_night_wind_filter,
+#                   data = cdata[cdata$Correct_NR&
+#                                  cdata$day_and_night_wind_filter!="exclude"&
+#                                  (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),]))
+
+
+#ANCOVA of H by NR
+# No Significant differance accounting for dependence between treatment and control sites
+H_by_wind_dir_NR <-lmer(H ~ Correct_NR + day_and_night_wind_filter +(1|day_and_night_wind_filter),
+                  data = cdata[cdata$Correct_NR>0&
+                                 cdata$day_and_night_wind_filter!="exclude"&
+                                 (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+summary(H_by_wind_dir_NR)
+Anova(H_by_wind_dir_NR)
+
+#ANCOVA of u* by NR 
+#Noi significant difference
+ustar_by_NR_wind_dir <- lmer(u. ~ Correct_NR + day_and_night_wind_filter + (1|day_and_night_wind_filter),
+                  data = cdata[cdata$Correct_NR>0&
+                                 cdata$day_and_night_wind_filter!="exclude"&
+                                 (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+
+summary(ustar_by_NR_wind_dir)
+Anova(ustar_by_NR_wind_dir)
+
+
+
+##########################################################################
+
+
+#ANCOVA Nightime fluxes by air temperature
+
+nighttime_co2_by_airT <- lmer(co2_flux ~ air_temperature_adj + night_wind_filter +(1|night_wind_filter),
+                  data = cdata[cdata$air_temperature_adj&
+                                 cdata$night_wind_filter!="exclude"&
+                               (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+summary(nighttime_co2_by_airT)
+Anova(nighttime_co2_by_airT)
+
+#ANCOVA daytime fluxes by air temperature
+day_co2_by_airT <- lmer(co2_flux ~ air_temperature_adj + day_wind_filter +(1|day_wind_filter),
+                  data = cdata[cdata$air_temperature_adj&
+                                 cdata$day_wind_filter!="exclude"&
+                               (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+summary(day_co2_by_airT)
+Anova(day_co2_by_airT)
+
+#ANCOVA day and night fluxes by air temperature. Stupid to do. because interdependences between temperature and night and just being respiration temp drops at night where we will just see respiration
+
+###################################################################################
+#ANCOVA Nightime fluxes by soil temperature
+night_co2_by_soil_t1 <-lmer(co2_flux ~ TC_Avg.1. + night_wind_filter + (1|night_wind_filter),
+                  data = cdata[cdata$TC_Avg.1.&
+                                 cdata$night_wind_filter!="exclude"&
+                               (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+summary(night_co2_by_soil_t1)
+Anova(night_co2_by_soil_t1)
+
+#ANCOVA daytime fluxes by soil temperature
+day_co2_by_soil_t1 <-lmer(co2_flux ~ TC_Avg.1. + day_wind_filter + (1|day_wind_filter),
+                  data = cdata[cdata$TC_Avg.1.&
+                                 cdata$day_wind_filter!="exclude"&
+                               (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),])
+
+summary(day_co2_by_soil_t1)
+Anova(day_co2_by_soil_t1)
+
+
+##############################################################################################
+
+#ANCOVA Nightime fluxes by soil VWC
+
+summary(lm(co2_flux ~ VWC_Avg + night_wind_filter,
+                  data = cdata[cdata$VWC_Avg&
+                                 cdata$night_wind_filter!="exclude"&
+                               (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),]))
+
+#ANCOVA daytime fluxes by soil temperature
+summary(lm(co2_flux ~ VWC_Avg + day_wind_filter,
+                  data = cdata[cdata$VWC_Avg&
+                                 cdata$day_wind_filter!="exclude"&
+                               (cdata$TIMESTAMP$mon<=3|cdata$TIMESTAMP$mon>=11),]))
+
+
+
+
+
+
+
+#LE by Net Radiation
+#expression(LE~'('~W~m^{-2}~')')
+
+```
+
+```{r}
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                             
+                              cdata$u. > 0.1],
+  cdata$LE[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225  & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-50, 300),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab = expression(LE~'('~W~m^{-2}~')'),
+  
+  main = 'Latent Heat by Net Radiation',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 300 &
+                            
+                              cdata$u. > 0.1],
+  cdata$LE[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-50, 300),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab =expression(LE~'('~W~m^{-2}~')'),
+  
+  #main='Night time fluxes by Net Radiation',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+#sensible heat by net radiation
+#expression(H~'('~W~m^{-2}~')')
+```{r}
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                             
+                              cdata$u. > 0.1],
+  cdata$H[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225  & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-100, 400),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab = expression(H~'('~W~m^{-2}~')'),
+  
+  main = 'Sensible Heat by Net Radiation',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 300 &
+                            
+                              cdata$u. > 0.1],
+  cdata$H[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-100, 400),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab =expression(H~'('~W~m^{-2}~')'),
+  
+  
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+
+#U* by net radiation
+#expression(u['*']~'('~m~s^{-1}~')')
+```{r}
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                             
+                              cdata$u. > 0.1],
+  cdata$u.[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225  & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0.1, 1),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab = expression(u['*']~'('~m~s^{-1}~')'),
+  
+  main = 'U* by Net Radiation',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$Correct_NR[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 300 &
+                            
+                              cdata$u. > 0.1],
+  cdata$u.[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0.1, 1),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation',
+  ylab =expression(u['*']~'('~m~s^{-1}~')'),
+  
+  
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+
+#looking at break down of fluxes by wind direction
+
+```{r}
+
+
+wind_1<-hist(cdata$wind_dir[cdata$wind_dir>= 150 &
+                              cdata$wind_dir <= 225 & cdata$u. > 0.1], 
+     breaks = 7, 
+     xlim = c(0,360), 
+     ylim = c(0,2600), 
+     col = 'blue',
+     xlab =  'Wind Direction',
+     #labels = TRUE,
+     main = "Wind Direction Frequency")
+
+
+par(new=TRUE)
+
+hist(cdata$wind_dir[cdata$wind_dir>= 230 &
+                              cdata$wind_dir <= 300 & cdata$u. > 0.1], 
+     breaks = 7,
+     xlim = c(0,360), 
+     ylim = c(0,2600), 
+     col = 'red',
+     xlab = "",
+     #labels = TRUE,
+     main = "")
+par(new=TRUE)
+
+hist(cdata$wind_dir[cdata$wind_dir>= 0 &
+                              cdata$wind_dir <150 & cdata$u. > 0.1], 
+     breaks = 15,
+     xlim =  c(0,360), 
+     ylim = c(0,2600), 
+     xlab = "",
+     #labels = TRUE,
+     main = "") 
+
+par(new=TRUE)
+
+hist(cdata$wind_dir[cdata$wind_dir> 300 & cdata$u. > 0.1 ], 
+     breaks = 6,
+     xlim =  c(0,360), 
+     ylim = c(0,2600), 
+     xlab = "",
+     #labels = TRUE,
+     main="") 
+
+par(new=TRUE)
+
+hist(cdata$wind_dir[cdata$wind_dir> 225 &
+                      cdata$wind_dir<230 & cdata$u. > 0.1], 
+     breaks = 1,
+     xlim =  c(0,360), 
+     ylim = c(0,2600), 
+     col = "green",
+     xlab = "",
+     #labels = TRUE,
+     main="") 
+
+legend(
+  x = 'topright',
+  legend = c('Treatment (150-225)', 'Control(230-300)', 'gap(225-230)', 'excluded'),
+  lty =  1,
+  col = c('blue', 'red', 'green', 'grey')
+)
+
+#treatment data points
+freq_table(cdata$wind_dir[cdata$wind_dir>= 150 &
+                              cdata$wind_dir <= 225 & cdata$u. > 0.1])
+
+freq_table(cdata$wind_dir[cdata$wind_dir>= 230 &
+                              cdata$wind_dir <= 300 & cdata$u. > 0.1])
+
+#excluded data (includes wetlands, etc.)
+freq_table(cdata$wind_dir[cdata$wind_dir<150 |
+                              cdata$wind_dir > 300 & cdata$u. > 0.1])
+
+#excluded dat to create a buffer between treatment and contrl
+freq_table(cdata$wind_dir[cdata$wind_dir> 225 &
+                              cdata$wind_dir < 230 & cdata$u. > 0.1])
+
+# wind_table<-freq_table(cdata$wind_dir[cdata$wind_dir>= 150 &
+#                               cdata$wind_dir <= 225]&
+#                      cdata$wind_dir[cdata$wind_dir>= 230 &
+#                               cdata$wind_dir <= 300])
+# 
+# wind_table
+
+     
+```
+
+
+#night time co2 fluxes by air temperature
+# daytime=='0
+#using wind directions for treatment 150-225, Control 230-300
+#im struggling with this. 
+```{r}
+
+# WD.co2_night_by_air_temp<-rep(NA,nrow(cdata)) #keep just in case you have missing values
+# WD.co2_night_by_air_temp[which(!is.na(cdata$wind_dir)&
+#                (cdata$wind_dir>=150 & cdata$wind_dir<=225)&
+#                 !is.na(cdata$daytime)&
+#                    cdata$daytime == '0')]<-1  #night time treatment
+# 
+# WD.co2_night_by_air_temp[which(!is.na(cdata$wind_dir)&
+#                (cdata$wind_dir>=230 | cdata$wind_dir<=300)&
+#                 !is.na(cdata$daytime)&
+#                    cdata$daytime == '0')]<-2 #night time control
+# 
+# WD.co2_night_by_air_temp[which(!is.na(cdata$wind_dir)&
+#                (cdata$wind_dir>270&cdata$wind_dir<=360)&
+#                 !is.na(cdata$daytime)&
+#                    cdata$daytime == '1')]<-3 #daytime time treatment
+# 
+# WD.co2_night_by_air_temp[which(!is.na(cdata$wind_dir)&
+#                (cdata$wind_dir<270 | cdata$wind_dir>=360)&
+#                 !is.na(cdata$daytime)&
+#                    cdata$daytime == '1')]<-4 #day time control
+# 
+# table(WD.co2_night_by_air_temp)
+# 
+# 
+# #could create a night time cdata
+# #WD.co2_night_by_air_temp[which(!is.na(cdata$daytime)&
+#        #        (cdata$daytime == '0' & cdata$daytime=='1'))]<-2 #changed to 2 just now
+# 
+# WD.legend<-c("Treatment wind","Control wind")
+# WD.col<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1)) #four groups have to assign four colors. can assign whiteto hide what we don't see. 
+# 
+# target.plot.var<-c("co2_flux")
+# target.plot.var.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')')) 
+# 
+# for(k1 in 1:length(target.plot.var)){
+#   
+#   ## locate the start of each month
+#   month.loc<-which(cdata$TIMESTAMP$mday==1&
+#                      cdata$TIMESTAMP$hour==0&
+#                      cdata$TIMESTAMP$min==0)
+#   month.ticks <- seq(cdata$TIMESTAMP[month.loc[1]],
+#                      cdata$TIMESTAMP[month.loc[length(month.loc)]],by="months")
+#   
+#   png(paste0(plot.path,
+#              "Concord_8_",
+#              cdata$TIMESTAMP$year[1]+1900,"_",
+#              cdata$TIMESTAMP$yday[1]+1,"_",
+#              cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+#              cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+#              target.plot.var[k1],"_color_",
+#              Sys.Date(),".png"),
+#       width=8,
+#       height=4,
+#       units="in",
+#       res=300,
+#       pointsize = 11,
+#       bg = "white")
+#   
+#   par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+#   plot(cdata$air_temperature_adj[], #plotting everything, just making different color. Can hide group 4& 3
+#        cdata[,target.plot.var[k1]],#add square bracket here. 
+#        xlab="",
+#        ylab="",
+#        cex=0.5,col=WD.col[1],
+#        las=1,pch=16,
+#        xaxs="i",yaxs="i"
+#        
+#   )
+#   
+#   #use a new function called point Cdata:air temperature and target group, pch. plotting and adding anoter level. have two groups so just need 1 
+#   mtext(side=2,target.plot.var.title[k1],line=3)
+#   mtext(side=1,"Air Temperature Night",line=2.8)
+#   abline(h=0,col="darkgrey")
+#   #axis(1, at = month.ticks, labels = FALSE, tcl = -0.3)
+#   
+#   par(fig=c(0.7,1,0,1),new=T)
+#   hist0<-hist(cdata[,target.plot.var[k1]],
+#               plot=F,nclass=50)
+#   hist1<-hist(cdata[,target.plot.var[k1]][WD.grp==1], #subsetting and only using half of the data
+#               plot=F,breaks=hist0$breaks)
+#   hist2<-hist(cdata[,target.plot.var[k1]][WD.grp==2],
+#               plot=F,breaks=hist0$breaks) 
+#   
+#   barplot(hist1$counts,
+#           axes=F,
+#           horiz=T,
+#           ylim=c(0,length(hist1$breaks)+1),
+#           xlim=c(-5,max(c(hist1$counts,hist2$counts))),
+#           space=0,col=WD.col[1],border=NA) # barplot
+#   barplot(hist2$counts,
+#           axes=F,
+#           add=T,
+#           horiz=T,
+#           ylim=c(0,length(hist1$breaks)+1),
+#           xlim=c(-5,max(c(hist1$counts,hist2$counts))),
+#           space=0,col=WD.col[2],border=NA) # barplot
+#   legend(0,
+#          length(hist1$breaks)+1,
+#          fill=WD.col,border=NA,
+#          legend=WD.legend,bty="n",
+#          cex=0.9)
+#   dev.off()
+# }
+  
+
+```
+
+#co2 fluxes by night time. using my plotting over method, PAR new=TRUE
+
+```{r}
+
+plot(
+  cdata$air_temperature_adj[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                              cdata$daytime == 0 &
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Air ~ temperature ~ '(' ~ degree ~ C ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Night time fluxes by air temperature',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$air_temperature_adj[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 300 &
+                              cdata$daytime == 0 &
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Air ~ temperature ~ '(' ~ degree ~ C ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Night time fluxes by air temperature',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+
+
+```
+
+#daytime co2 fluxes
+```{r}
+plot(
+  cdata$air_temperature_adj[cdata$wind_dir >= 150 &
+                              cdata$wind_dir <= 225 &
+                              cdata$daytime == 1 &
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 1 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Air ~ temperature ~ '(' ~ degree ~ C ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Day time fluxes by air temperature',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$air_temperature_adj[cdata$wind_dir >= 230 &
+                              cdata$wind_dir <= 300 &
+                              cdata$daytime == 1 &
+                              cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 1 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Air ~ temperature ~ '(' ~ degree ~ C ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Day time fluxes by air temperature',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+#nighttime fluxes by soil temperature
+```{r}
+plot(
+  cdata$TC_Avg.1.[cdata$wind_dir >= 150 &
+                    cdata$wind_dir <= 225 &
+                    cdata$daytime == 0 &
+                    cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Soil ~ Surface ~ temperature ~ '(' ~ degree ~ C ~
+                      ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Night time fluxes by surface soil temperature (TC1)',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$TC_Avg.1.[cdata$wind_dir >= 230 &
+                    cdata$wind_dir <= 300 &
+                    cdata$daytime == 0 &
+                    cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Soil ~ Surface ~ temperature ~ '(' ~ degree ~ C ~
+                      ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Night time fluxes by Surface Soil Temperature',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+#Daytime fluxes by soil temperature  TC1
+```{r}
+plot(
+  cdata$TC_Avg.1.[cdata$wind_dir >= 150 &
+                    cdata$wind_dir <= 225 &
+                    cdata$daytime == 1 &
+                    cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 1 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Soil ~ Surface ~ temperature ~ '(' ~ degree ~ C ~
+                      ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Day time fluxes by surface soil temperature (TC1)',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$TC_Avg.1.[cdata$wind_dir >= 230 &
+                    cdata$wind_dir <= 300 &
+                    cdata$daytime == 1 &
+                    cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 1 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 35),
+  xlab = expression(Soil ~ Surface ~ temperature ~ '(' ~ degree ~ C ~
+                      ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Night time fluxes by Surface Soil Temperature',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+#night time fluxes by VWc (soil moisture)
+```{r}
+plot(
+  cdata$VWC_Avg[cdata$wind_dir >= 150 &
+                  cdata$wind_dir <= 225 &
+                  cdata$daytime == 0 &
+                  cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 1),
+  xlab = expression(VWC ~ '(' ~ Percentage ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Night time fluxes by VWC',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$VWC_Avg[cdata$wind_dir >= 230 &
+                  cdata$wind_dir <= 300 &
+                  cdata$daytime == 0 &
+                  cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 0 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 1),
+  xlab = expression(VWC ~ '(' ~ Percentage ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Night time fluxes by Surface Soil Temperature',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+#daytime fluxes by VWC
+```{r}
+
+plot(
+  cdata$VWC_Avg[cdata$wind_dir >= 150 &
+                  cdata$wind_dir <= 225 &
+                  cdata$daytime == 1 &
+                  cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 150 &
+                   cdata$wind_dir <= 225 & cdata$daytime == 1 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 1),
+  xlab = expression(VWC ~ '(' ~ Percentage ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = 'Day time fluxes by VWC',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  cdata$VWC_Avg[cdata$wind_dir >= 230 &
+                  cdata$wind_dir <= 300 &
+                  cdata$daytime == 1 &
+                  cdata$u. > 0.1],
+  cdata$co2_flux[cdata$wind_dir >= 230 &
+                   cdata$wind_dir <= 300 & cdata$daytime == 1 & cdata$u. > 0.1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 1),
+  xlab = expression(VWC ~ '(' ~ Percentage ~ ')'),
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  #main='Day time fluxes by Surface Soil Temperature',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Treatment (150-225)', 'Control(230-300)'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+
+
+
+
+#co2 fluxes by air temp, night and day
+```{r}
+WD.SE_LE_co2_by_NR<-rep(2,nrow(cdata))
+WD.SE_LE_co2_by_NR[which(!is.na(cdata$wind_dir)&
+               (cdata$wind_dir>=150 & cdata$wind_dir<=225)& #treatment
+                !is.na(cdata$wind_dir),
+                   cdata$wind_dir>=230 & cdata$wind_dir<=300)]<-1 #control
+Wd.legend_1<-c("150-225 wind ","230-300 wind")
+WD.col<-c(rgb(0,0,1,0.5,maxColorValue=1),rgb(1,0,0,0.5,maxColorValue=1))
+
+target.plot.var<-c("co2_flux")
+target.plot.var.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')')) 
+
+for(k1 in 1:length(target.plot.var)){
+  
+  ## locate the start of each month
+  month.loc<-which(cdata$TIMESTAMP$mday==1&
+                     cdata$TIMESTAMP$hour==0&
+                     cdata$TIMESTAMP$min==0)
+  month.ticks <- seq(cdata$TIMESTAMP[month.loc[1]],
+                     cdata$TIMESTAMP[month.loc[length(month.loc)]],by="months")
+  
+  png(paste0(plot.path,
+             "Concord_9_",
+             cdata$TIMESTAMP$year[1]+1900,"_",
+             cdata$TIMESTAMP$yday[1]+1,"_",
+             cdata$TIMESTAMP$year[nrow(cdata)]+1900,"_",
+             cdata$TIMESTAMP$yday[nrow(cdata)]+1,"_",
+             target.plot.var[k1],"_color_",
+             Sys.Date(),".png"),
+      width=8,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(4,4.5,0.5,0.5),mar=c(0,0.5,0,0.5),fig=c(0,0.7,0,1))
+  plot(cdata$air_temperature_adj,
+       cdata[,target.plot.var[k1]],
+       xlab="",
+       ylab="",
+       cex=0.5,col=WD.col[WD.grp],
+       las=1,pch=16,
+       xaxs="i",yaxs="i"
+  )
+  mtext(side=2,target.plot.var.title[k1],line=3)
+  mtext(side=1,"Air Temperature Day and Night",line=2.8)
+  abline(h=0,col="darkgrey")
+  #axis(1, at = month.ticks, labels = FALSE, tcl = -0.3)
+  
+  par(fig=c(0.7,1,0,1),new=T)
+  hist0<-hist(cdata[,target.plot.var[k1]],
+              plot=F,nclass=50)
+  hist1<-hist(cdata[,target.plot.var[k1]][WD.grp==1],
+              plot=F,breaks=hist0$breaks)
+  hist2<-hist(cdata[,target.plot.var[k1]][WD.grp==2],
+              plot=F,breaks=hist0$breaks) 
+  
+  barplot(hist1$counts,
+          axes=F,
+          horiz=T,
+          ylim=c(0,length(hist1$breaks)+1),
+          xlim=c(-5,max(c(hist1$counts,hist2$counts))),
+          space=0,col=WD.col[1],border=NA) # barplot
+  barplot(hist2$counts,
+          axes=F,
+          add=T,
+          horiz=T,
+          ylim=c(0,length(hist1$breaks)+1),
+          xlim=c(-5,max(c(hist1$counts,hist2$counts))),
+          space=0,col=WD.col[2],border=NA) # barplot
+  legend(0,
+         length(hist1$breaks)+1,
+         fill=WD.col,border=NA,
+         legend=WD.legend,bty="n",
+         cex=0.9)
+  dev.off()
+}
+```
+
+
+#water fluxes and cumulative sum of co2 and h20 fluxes
+```{r}
+plot(cdata$TIMESTAMP ,cdata$h2o_flux, xlab='Time', ylab='H2O Fluxes', main='H2O Fluxes: Daily and Half Hour Averages',  ylim = c(-2,5),pch=1,col="grey",cex=0.4)
+par(new= TRUE)
+
+plot(tapply(cdata$h2o_flux,
+            round(cdata$DOY),
+            function(x) mean(x,na.rm=T)),
+     xaxt='n',
+     xlab='Time',
+     ylab='H2O Fluxes',
+     main='H2O Fluxes: Daily and Half Hour Averages',
+     ylim = c(-2,5),
+     lty=1,
+     col="red",
+     lwd=2,
+     type="l")
+abline(h=0,col="black")
+
+plot(cumsum(tapply(cdata$h2o_flux,
+            round(cdata$DOY),
+            function(x) mean(x,na.rm=T)))*18.02/1000000*1800*48,
+     xaxt='n',
+     xlab='Days since June 25',
+     ylab=expression(Cumulative~Evapotranspiration~'('~mm~')'),
+     main='',
+     ylim = c(0,330),
+     lty=1,
+     col="red",
+     lwd=2,
+     type="l")
+axis(side=1,at=seq(0,270,by=30))
+
+plot(cumsum(tapply(cdata$co2_flux,
+            round(cdata$DOY),
+            function(x) mean(x,na.rm=T)))*12/1000000*1800*48,
+     xaxt='n',
+     xlab='Days since July 2019',
+     ylab=expression(Cumulative~NEE~'('~g~C~m^{-2}~')'),
+     main='',
+     ylim = c(-220,10),
+     lty=1,
+     col="red",
+     lwd=2,
+     type="l")
+axis(side=1,at=seq(0,1000,by=30))
+
+
+```
+
+
+
+#Work on (co)spectra data
+```{r}
+head(cdata)
+```
+
+
+```{r}
+
+
+zL.cut.rng<-c(-5,-0.1,0.1,1) ## setting the 3 Z/L ranges for plotting
+cspec.data.pre<-NULL
+
+data.pre<-cdata  
+
+## work on file name of spectrum files
+cspec.name.ls.parse<-paste(cdata$TIMESTAMP$year+1900,
+                           sprintf("%02d",cdata$TIMESTAMP$mon+1),
+                           sprintf("%02d",cdata$TIMESTAMP$mday),
+                           "-",
+                           sprintf("%02d",cdata$TIMESTAMP$hour),
+                           sprintf("%02d",cdata$TIMESTAMP$min),
+                           "_binned_cospectra",
+                           sep="")
+```
+
+
+```{r}
+## scan if spectrum files exist
+cspec.name.ls<-rep(NA,length(cspec.name.ls.parse))
+cspec.file.exist<-rep(FALSE,length(cspec.name.ls.parse))
+cspec.file.ls<-list.files(paste0(eddypro.path,"eddypro_binned_cospectra\\"))
+for(i in 1:length(cspec.file.exist)){
+  cspec.name.ls[i]<-cspec.file.ls[which(grepl(cspec.name.ls.parse[i],
+                                              cspec.file.ls))[1]]
+  cspec.file.exist[i]<-ifelse(!is.na(cspec.name.ls[i]),
+                              TRUE,
+                              FALSE)
+}
+
+cspec.var.name<-c("n.f","f","fh.u","fSu","fSv","fSw","fSt","fSc","fSq","fSm","fSn",
+                  "fCwu","fCwv","fCwt","fCwc","fCwq","fCwm","fCwn")
+cspec.var.name.select<-c("n.f","f","fh.u","fSu","fSv","fSw","fSt","fSc","fSq",
+                         "fCwu","fCwv","fCwt","fCwc","fCwq")
+
+```
+
+
+
+```{r}
+## which spectrum variables to plot 
+target.cspec<-c("fSw","fSt","fSc","fSq",
+                "fCwu","fCwt","fCwc","fCwq")
+```
+
+#for running just one month comment out 575 and 659
+
+```{r}
+### loop through the spectrum files, combine them into a single dataframe for plotting
+month.id<-paste0(cdata$TIMESTAMP$year+1900,"-",sprintf("%02d",cdata$TIMESTAMP$mon+1))
+month.id.ls<-list(names(table(month.id)),
+                  as.vector(table(month.id)))
+#can comment out 575 and 659 if you want to run just one month
+for(j1 in 1:length(month.id.ls[[1]])){
+#j1=7 #add just the month heere. comment out if wan to run full loop
+cspec.data.pre<-data.frame()
+target.mon<-month.id.ls[[1]][j1]
+target.mon.loc<-which(month.id==target.mon)
+
+print(paste0("######  ",target.mon,"  ######"))
+
+for(i1 in 1:length(cspec.name.ls[target.mon.loc])){
+  if(cspec.file.exist[target.mon.loc][i1]){
+    
+    ## read in each (co)spectra files
+    cspec.data<-read.csv(paste(eddypro.path,
+                               "eddypro_binned_cospectra\\",
+                               cspec.name.ls[target.mon.loc][i1],sep=""),
+                         skip=11,
+                         header=T,
+                         na.strings=c("-9999","-9999.0"))
+    
+    colnames(cspec.data)<-cspec.var.name
+    
+    ## combine spetrum data with basic state variables, e.g., WS, WD
+    cspec.data.tmp<-data.frame(date=rep(data.pre$date[target.mon.loc][i1],nrow(cspec.data)),
+                               time=rep(data.pre$time[target.mon.loc][i1],nrow(cspec.data)),
+                               zL=rep(data.pre$X.z.d..L[target.mon.loc][i1],nrow(cspec.data)),
+                               L=rep(data.pre$L[target.mon.loc][i1],nrow(cspec.data)),
+                               WS=rep(data.pre$wind_speed[target.mon.loc][i1],nrow(cspec.data)),
+                               WD=rep(data.pre$wind_dir[target.mon.loc][i1],nrow(cspec.data)),
+                               cspec.data[,cspec.var.name.select])
+    
+    ### filter spetrum data based on corresponding variance/covariance
+    
+    if(is.na(data.pre$u.[target.mon.loc][i1])){
+      cspec.data.tmp$fSu<-NA
+      cspec.data.tmp$fCwu<-NA
+      cspec.data.tmp$fSv<-NA
+      cspec.data.tmp$fCwv<-NA
+      cspec.data.tmp$fSw<-NA
+    }
+    if(is.na(data.pre$H[target.mon.loc][i1])){
+      cspec.data.tmp$fSt<-NA
+      cspec.data.tmp$fCwt<-NA
+    }
+    if(is.na(data.pre$co2_flux[target.mon.loc][i1])){
+      cspec.data.tmp$fSc<-NA
+      cspec.data.tmp$fCwc<-NA
+    }
+    if(is.na(data.pre$LE[target.mon.loc][i1])){
+      cspec.data.tmp$fSq<-NA
+      cspec.data.tmp$fCwq<-NA
+    }
+    cspec.data.pre<-rbind.data.frame(cspec.data.pre,cspec.data.tmp)
+  }else{
+    print(paste(cspec.name.ls.parse[target.mon.loc][i1],"has no spectrum files"))  
+  }                       
+}
+
+
+### output site-specific (co)spectra file (composite all records)
+write.csv(cspec.data.pre,
+          paste0(plot.path,
+                 target.mon,
+                 "_cospectra_compiled_",
+                 Sys.Date(),".csv",
+                 sep=""),
+          row.names=F)
+
+#### loop through the target.var, do spectrum plotting 
+for(m2 in 1:length(target.cspec)){
+  
+  cospectra_plot3(cspec.data.pre=cspec.data.pre,
+                  target.var=target.cspec[m2], 
+                  case="Concord",
+                  year=cdata$TIMESTAMP$year[target.mon.loc][1]+1900,
+                  doy.i=cdata$TIMESTAMP$yday[target.mon.loc][1]+1,
+                  doy.f=cdata$TIMESTAMP$yday[target.mon.loc][length(target.mon.loc)]+1,
+                  output=T,
+                  outDir=plot.path,
+                  plot.loess=T,
+                  postfix=paste0("_",Sys.Date()),
+                  log.y.value=T,
+                  zL.cut.rng=zL.cut.rng)  
+  
+}
+} #comment out for just running one month. remove # if you want to run a full loop. 
+
+
+
+```
+
+
+
+
+
+

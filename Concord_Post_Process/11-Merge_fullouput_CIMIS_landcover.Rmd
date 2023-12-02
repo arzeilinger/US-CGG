@@ -1,0 +1,301 @@
+---
+title: "Pulling out the treatment side data post compost application"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r echo=FALSE}
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+require(openair)
+library(bigleaf)
+
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+library(stringr)
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+library(dplyr)
+
+library(lognorm)
+
+SE <- function(x, na.rm=FALSE) {
+  if (na.rm) x <- na.omit(x)
+  sqrt(var(x)/length(x))
+}
+```
+
+#Defining the data I/O directory
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+# root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+cimis_gap_fill.path<-paste0(root.path,"06_CIMIS_gap_fill\\") ## this is where the gapfilled MET data lives
+
+foot_print.path <- paste0(root.path, "08_fp_lc\\")
+ver_2<- "master_fp_lc"
+
+out.path<-paste0(root.path, "12_treat_control_data\\")
+
+GAM.path<-paste0(root.path,"14_GAM_ready_Data\\") # this is tower data for the GAM model lives
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.file_gap_fill<-paste0("2021-09-13_eddy_met_cimis_gap_filled.csv")
+
+cdata.file_fp_lc <- paste("Master_fp_lc.csv")
+ 
+```
+
+
+# Read in gap filled fulloutput file
+# parse variable names and define N/As
+
+```{r}
+## read in full output file of gap filled data
+MET_gap_filled <-
+  read.csv(
+    paste0(cimis_gap_fill.path, cdata.file_gap_fill, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+
+```
+
+#read in footprint land cover file
+
+```{r}
+fp_lc_master <-
+  read.csv(
+    paste0(foot_print.path , cdata.file_fp_lc, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+
+```
+
+#adding back timestamp gap filled
+
+```{r}
+MET_gap_filled$TIMESTAMP <- strptime(paste(MET_gap_filled$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "UTC")
+
+```
+
+
+
+#fixing time stamp for footprint landcover
+```{r}
+fp_lc_master$TIMESTAMP <- strptime(paste(fp_lc_master$TIMESTAMP),
+                                   format = "%m/%d/%Y %H:%M",
+                                   tz = "UTC")
+
+```
+
+
+#addding time.id gap filled
+```{r}
+MET_gap_filled$time.id <- MET_gap_filled$TIMESTAMP$year + 1900 +
+  (MET_gap_filled$TIMESTAMP$yday) / 366 +
+  (MET_gap_filled$TIMESTAMP$hour) / 366 / 24 +
+  (MET_gap_filled$TIMESTAMP$min) / 366 / 24 / 60
+
+plot(MET_gap_filled$TIMESTAMP, MET_gap_filled$time.id)
+
+
+
+```
+
+
+
+#adding timeid for footprint_landcover
+
+```{r}
+fp_lc_master$time.id <- fp_lc_master$TIMESTAMP$year + 1900 +
+  (fp_lc_master$TIMESTAMP$yday) / 366 +
+  (fp_lc_master$TIMESTAMP$hour) / 366 / 24 +
+  (fp_lc_master$TIMESTAMP$min) / 366 / 24 / 60
+
+plot(fp_lc_master$TIMESTAMP, fp_lc_master$time.id)
+
+
+```
+
+
+#Creating DOY
+```{r}
+MET_gap_filled$DOY <- MET_gap_filled$TIMESTAMP$year + 1900 +
+  (MET_gap_filled$TIMESTAMP$yday) / 366
+
+######################################
+fp_lc_master$DOY <- fp_lc_master$TIMESTAMP$year + 1900 +
+  (fp_lc_master$TIMESTAMP$yday) / 366
+
+
+```
+
+#merging gap filled and post filter data based on time id
+```{r}
+MET_Gap_LC <- merge.data.frame(
+  MET_gap_filled,
+  fp_lc_master[, -which(colnames(fp_lc_master) == "TIMESTAMP")],
+  by = "time.id",
+  all.x  = TRUE,
+  sort = TRUE
+)
+
+```
+
+#creating DOY for gap fill post filter
+
+```{r}
+MET_Gap_LC$DOY <- 
+  MET_Gap_LC$TIMESTAMP$year + 1900 +
+  (MET_Gap_LC$TIMESTAMP$yday) / 366
+
+```
+#creating vpd column
+```{r}
+MET_Gap_LC$VPD <-
+  rH.to.VPD(
+    MET_Gap_LC$RH_Avg_GF / 100,
+    MET_Gap_LC$AirT_Avg_GF,
+    Esat.formula = c("Sonntag_1990", "Alduchov_1996",
+                     "Allen_1998"),
+    constants = bigleaf.constants()
+  )
+
+```
+
+#quick plot of VPD to double check
+```{r}
+plot(MET_Gap_LC$TIMESTAMP, MET_Gap_LC$VPD)
+```
+
+
+# Sorting into pre-compost and post compost application treatment and control areas
+1. based on footprint weight if available
+2. based on wind direction (excluding west & east wind sectors where the 
+   boundary of control and treatment sides)
+
+```{r}
+# buffer sector for excluding winds coming from the boundaries of treatment & control
+buffer.wd <- 45
+east.bound <- 100
+west.bound <- 255
+
+#Sorting the treatment area into the pre and post compost application for analysis
+MET_Gap_LC$treat_pre_post_cmpst_filt <-
+  rep("exclude", nrow(MET_Gap_LC))
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(
+  ((!is.na(MET_Gap_LC$fpt_weight_treatment) &
+      MET_Gap_LC$fpt_weight_treatment >= 0.7) | 
+     (!is.na(MET_Gap_LC$wind_dir) & 
+        MET_Gap_LC$wind_dir >= east.bound + 0.5 * buffer.wd & 
+        MET_Gap_LC$wind_dir <= west.bound - 0.5 * buffer.wd)) &
+    MET_Gap_LC$TIMESTAMP > as.POSIXct("2020-10-16")
+)] <- "treatment_post_compost"
+
+#######################################################
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(
+  ((!is.na(MET_Gap_LC$fpt_weight_treatment) &
+      MET_Gap_LC$fpt_weight_treatment >= 0.7) | 
+     (!is.na(MET_Gap_LC$wind_dir) & 
+        MET_Gap_LC$wind_dir >= east.bound + 0.5 * buffer.wd & 
+        MET_Gap_LC$wind_dir <= west.bound - 0.5 * buffer.wd)) &
+    MET_Gap_LC$TIMESTAMP < as.POSIXct("2020-10-16")
+)] <- "treatment_pre_compost"
+
+######################################################
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(
+  ((!is.na(MET_Gap_LC$fpt_weight_treatment) &
+      MET_Gap_LC$fpt_weight_treatment < 0.3) | 
+     (!is.na(MET_Gap_LC$wind_dir) & 
+        (MET_Gap_LC$wind_dir <= east.bound - 0.5 * buffer.wd | 
+           MET_Gap_LC$wind_dir >= west.bound + 0.5 * buffer.wd))) &
+    MET_Gap_LC$TIMESTAMP > as.POSIXct("2020-10-16")
+)] <- "control_post_compost"
+
+####################################################
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(
+  ((!is.na(MET_Gap_LC$fpt_weight_treatment) &
+      MET_Gap_LC$fpt_weight_treatment < 0.3) | 
+     (!is.na(MET_Gap_LC$wind_dir) & 
+        (MET_Gap_LC$wind_dir <= east.bound - 0.5 * buffer.wd | 
+           MET_Gap_LC$wind_dir >= west.bound + 0.5 * buffer.wd))) &
+    MET_Gap_LC$TIMESTAMP < as.POSIXct("2020-10-16")
+)] <- "control_pre_compost"
+
+
+table(MET_Gap_LC$treat_pre_post_cmpst_filt)
+
+```
+
+#Sorting out treatment and control data data post compost application for readyproc
+
+```{r}
+
+data.GAM_treat_post_compost<-data.frame(
+                    TIMESTAMP = MET_Gap_LC$TIMESTAMP,
+                    H = MET_Gap_LC$H,  ## H
+                    LE = MET_Gap_LC$LE,    ## LE
+                    h2o_flux = MET_Gap_LC$h2o_flux, #h20flux
+                    NEE = MET_Gap_LC$co2_flux ,  ## c02 flux\
+                    rH = MET_Gap_LC$RH_Avg_GF, #gapfilled relative humidity
+                    Ustar = MET_Gap_LC$u.,   #ustar
+                    Tsoil_0cm = MET_Gap_LC$Soil_temp_control_GF_0cm, #gapfilled soil temperature
+                    Tsoil_5cm = MET_Gap_LC$Soil_temp_control_GF_5cm,
+                    Tsoil_10cm = MET_Gap_LC$Soil_temp_control_GF_10cm,
+                    Tsoil_15cm = MET_Gap_LC$Soil_temp_control_GF_15cm,
+                    Tsoil_30cm = MET_Gap_LC$Soil_temp_control_GF_30cm,
+                    Tair = MET_Gap_LC$AirT_Avg_GF, #gapfilled air temperature
+                    VWC = MET_Gap_LC$VWC_Avg,
+                    Rg = MET_Gap_LC$Rg_Avg_GF,  ## incoming solar radiation
+                    precip = MET_Gap_LC$Precip_mm_Tot,
+                    VPD = MET_Gap_LC$VPD,
+                    treatment = MET_Gap_LC$treat_pre_post_cmpst_filt
+                     
+)
+
+data.GAM_treat_post_compost <-
+  data.GAM_treat_post_compost[!is.na(data.GAM_treat_post_compost$TIMESTAMP), ]
+
+write.csv(
+  data.GAM_treat_post_compost,
+  paste0(GAM.path, Sys.Date(), "_all_GAM_data.csv"),
+  quote = T,
+  row.names = F
+)
+
+
+
+```
+

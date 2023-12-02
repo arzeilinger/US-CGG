@@ -1,0 +1,2 @@
+"term","estimate","std.error","statistic","p.value"
+"gap_fill_post_filter_fp_lc$E_ng[gap_fill_post_filter_fp_lc$TIMESTAMP > as.POSIXct(""2019-10-31"") & gap_fill_post_filter_fp_lc$TIMESTAMP < as.POSIXct(""2020-11-01"")]",0.627374874889883,0.00254786656127977,246.235373713904,0

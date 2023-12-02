@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1588381897409.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "786881130",
+    "id" : "C53634BA",
+    "lastKnownWriteTime" : 1588373438,
+    "last_content_update" : 1588373438,
+    "path" : "C:/Users/Tommy/R/Concord/Concord_Post_Process/2020-05-01_concord_spec_tommy_hc.R",
+    "project_path" : "2020-05-01_concord_spec_tommy_hc.R",
+    "properties" : {
+        "cursorPosition" : "2,16",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

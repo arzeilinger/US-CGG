@@ -1,0 +1,3056 @@
+---
+title: "Analyzing gappfilled data"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+require(openair)
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+library(stringr)
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+library(dplyr)
+
+library(lognorm)
+
+SE <- function(x, na.rm=FALSE) {
+  if (na.rm) x <- na.omit(x)
+  sqrt(var(x)/length(x))
+}
+```
+
+#Defining the data I/O directory
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\tfens\\R_REPOS\\Flux_processing\\Concord_R_Code\\Concord_Post_Process\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+gap_fill.path<-paste0(root.path,"01_data\\07_Gap_Filled_Data\\") ## this is where the gapfilled data lives
+
+post_filter.path <-paste0(root.path, "01_data\\03_combined_data\\") #combined post filter file that has precip, etc.
+ver<-"combined_data" 
+
+foot_print.path <- paste0(root.path, "01_data\\05_FP_LC_data\\")
+ver_2<- "master_fp_lc"
+
+out.path<-paste0(root.path, "02_output\\07_figures_full_footprint_GF\\")
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.file_gap_fill<-paste0("2023-01-02_Nov-Nov-Manu_Gap_fill_combined_Concord.csv")
+
+cdata.file_post_filter <- paste("2022-11-07-Nov-Nov_manuscript_master_eddy_met_concord_postfiltering.csv")
+
+cdata.file_fp_lc <- paste("Master_fp_lc_Nov-Nov_manu.csv")
+ 
+```
+
+
+# Read in gap filled fulloutput file
+# parse variable names and define N/As
+
+```{r}
+## read in full output file of gap filled data
+gap_filled <-
+  read.csv(
+    paste0(gap_fill.path, cdata.file_gap_fill, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(gap_filled) <-
+  colnames(read.csv(
+    paste(gap_fill.path, cdata.file_gap_fill, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(gap_filled)
+
+tail(gap_filled)
+
+```
+#reading in the large post filter non-gapfilled file to get precipitation
+```{r}
+
+post_filter <-
+  read.csv(
+    paste0(post_filter.path, cdata.file_post_filter, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(post_filter) <-
+  colnames(read.csv(
+    paste(post_filter.path, cdata.file_post_filter, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(post_filter)
+
+tail(post_filter)
+
+
+```
+
+#read in footprint land cover file
+```{r}
+fp_lc_master <-
+  read.csv(
+    paste0(foot_print.path , cdata.file_fp_lc, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(fp_lc_master) <-
+  colnames(read.csv(
+    paste(foot_print.path, cdata.file_fp_lc, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(fp_lc_master)
+
+tail(fp_lc_master)
+
+```
+
+
+
+#adding back timestamp gap filled
+```{r}
+names(gap_filled)[names(gap_filled) == "TIMESTAMP"] <-
+  "fake_timestamp"
+
+head(gap_filled$fake_timestamp)
+
+gap_filled$TIMESTAMP <- strptime(paste(gap_filled$fake_timestamp),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+head(gap_filled$TIMESTAMP)
+
+head(gap_filled)
+```
+
+#fixing time stamp for post filter
+```{r}
+names(post_filter)[names(post_filter) == "TIMESTAMP"] <-
+  "fake_timestamp"
+
+head(post_filter$fake_timestamp)
+
+post_filter$TIMESTAMP <- strptime(paste(post_filter$fake_timestamp),
+                                  format = "%m/%d/%Y %H:%M",
+                                  tz = "Etc/GMT-8")
+
+head(post_filter$TIMESTAMP)
+
+head(post_filter)
+```
+
+#fixing time stamp for footprint landcover
+```{r}
+names(fp_lc_master)[names(fp_lc_master) == "TIMESTAMP"] <-
+  "fake_timestamp"
+
+head(fp_lc_master$fake_timestamp)
+
+fp_lc_master$TIMESTAMP <- strptime(paste(fp_lc_master$fake_timestamp),
+                                   format = "%m/%d/%Y %H:%M",
+                                   tz = "Etc/GMT-8")
+
+head(fp_lc_master$TIMESTAMP)
+
+head(fp_lc_master)
+```
+
+
+#addding time.id gap filled
+```{r}
+gap_filled$time.id <- gap_filled$TIMESTAMP$year + 1900 +
+  (gap_filled$TIMESTAMP$yday) / 366 +
+  (gap_filled$TIMESTAMP$hour) / 366 / 24 +
+  (gap_filled$TIMESTAMP$min) / 366 / 24 / 60
+
+gap_filled$time.id[1:50]
+plot(gap_filled$TIMESTAMP, gap_filled$time.id)
+which(duplicated(gap_filled$time.id))
+```
+
+#time id for post filter
+```{r}
+post_filter$time.id <- post_filter$TIMESTAMP$year + 1900 +
+  (post_filter$TIMESTAMP$yday) / 366 +
+  (post_filter$TIMESTAMP$hour) / 366 / 24 +
+  (post_filter$TIMESTAMP$min) / 366 / 24 / 60
+
+post_filter$time.id[1:50]
+plot(post_filter$TIMESTAMP, post_filter$time.id)
+which(duplicated(post_filter$time.id))
+```
+
+#adding timeid for footprint_landcover
+
+```{r}
+fp_lc_master$time.id <- fp_lc_master$TIMESTAMP$year + 1900 +
+  (fp_lc_master$TIMESTAMP$yday) / 366 +
+  (fp_lc_master$TIMESTAMP$hour) / 366 / 24 +
+  (fp_lc_master$TIMESTAMP$min) / 366 / 24 / 60
+
+fp_lc_master$time.id[1:50]
+plot(fp_lc_master$TIMESTAMP, fp_lc_master$time.id)
+which(duplicated(fp_lc_master$time.id))
+
+```
+
+
+
+#removing fake timestamp
+```{r}
+gap_filled$fake_timestamp <- NULL
+
+post_filter$fake_timestamp <- NULL
+
+fp_lc_master$fake_timestamp <- NULL
+```
+
+
+#Creating DOY
+```{r}
+gap_filled$DOY <- gap_filled$TIMESTAMP$year + 1900 +
+  (gap_filled$TIMESTAMP$yday) / 366
+
+head(gap_filled$DOY, 50)
+
+###############################
+post_filter$DOY <- post_filter$TIMESTAMP$year + 1900 +
+  (post_filter$TIMESTAMP$yday) / 366
+
+head(post_filter$DOY, 50)
+
+######################################
+fp_lc_master$DOY <- fp_lc_master$TIMESTAMP$year + 1900 +
+  (fp_lc_master$TIMESTAMP$yday) / 366
+
+head(fp_lc_master$DOY, 50)
+
+```
+
+#merging gap filled and post filter data based on time id
+```{r}
+gap_fill_post_filter <- merge.data.frame(
+  gap_filled,
+  post_filter[, -which(colnames(post_filter) == "TIMESTAMP")],
+  by = "time.id",
+  all.x  = TRUE,
+  sort = TRUE
+)
+
+head(gap_fill_post_filter, 50)
+```
+
+#merging gap fill post filter with footprint_landcover
+
+```{r}
+
+gap_fill_post_filter_fp_lc <- merge.data.frame(
+  gap_fill_post_filter,
+  fp_lc_master[, -which(colnames(fp_lc_master) ==
+                          "TIMESTAMP")],
+  by = "time.id",
+  all.x = TRUE,
+  sort = TRUE
+)
+
+
+head(gap_fill_post_filter_fp_lc, 50)
+
+```
+
+
+
+#creating DOY for gap fill post filter
+```{r}
+gap_fill_post_filter$DOY <- 
+  gap_fill_post_filter$TIMESTAMP$year + 1900 +
+  (gap_fill_post_filter$TIMESTAMP$yday) / 366
+
+head(gap_fill_post_filter$DOY, 50)
+```
+
+
+#creating DOY for gap fill post filter footprint landcover
+
+```{r}
+gap_fill_post_filter_fp_lc$DOY <-
+  gap_fill_post_filter_fp_lc$TIMESTAMP$year + 1900 +
+  (gap_fill_post_filter_fp_lc$TIMESTAMP$yday) / 366
+
+head(gap_fill_post_filter_fp_lc$DOY, 50)
+
+```
+
+#creating neg GPP to add respiration and GPP to test if correct
+```{r}
+
+gap_fill_post_filter_fp_lc$Gpp_neg <- (gap_fill_post_filter_fp_lc$GPP_U50_f * -1)
+
+plot(gap_fill_post_filter_fp_lc$DOY,
+     gap_fill_post_filter_fp_lc$Gpp_neg)
+
+gap_fill_post_filter_fp_lc$NEE_test <- (gap_fill_post_filter_fp_lc$Gpp_neg + gap_fill_post_filter_fp_lc$Reco_U50)
+
+plot(gap_fill_post_filter_fp_lc$DOY,
+     gap_fill_post_filter_fp_lc$NEE_test)
+
+```
+
+#creating albedo column
+```{r}
+#albedo
+gap_fill_post_filter_fp_lc$albedo <- (
+  gap_fill_post_filter_fp_lc$PAR_out_mV_Avg / gap_fill_post_filter_fp_lc$PAR_in_mV_Avg
+)
+
+```
+
+# Making all night time GPP values zero
+## HC: it's ok to have some positive hourly gpp, to conserve sum(nee) = sum(gpp+reco)
+
+```{r}
+
+#making all GPP values that we measure at night Zero
+gap_fill_post_filter_fp_lc$Gpp_neg[(gap_fill_post_filter_fp_lc$PotRad_U50 == 0)] <- 0
+
+#Making all GPP values that are greater than Zero NA's
+#gap_fill_post_filter_fp_lc$Gpp_neg[(gap_fill_post_filter_fp_lc$Gpp_neg > 0)] <- NA
+
+#gap_fill_post_filter_fp_lc$Gpp_neg
+```
+
+#Creating a new data column for respiration 
+#combination of Day Reco_U50 and night NEE_U50_f
+#Our night time respiration data will be directly measured, while our daytime respiration data will be modeled. 
+## HC: it's ok to have some negative hourly respiration, to conserve sum(nee) = sum(gpp+reco)
+
+```{r}
+
+# creating a new column called respiration
+gap_fill_post_filter_fp_lc$respiration <- (gap_fill_post_filter_fp_lc$Reco_U50 * 1)
+
+# Assigning all nighttime respiration values from original gap-filled nee
+gap_fill_post_filter_fp_lc$respiration[(gap_fill_post_filter_fp_lc$PotRad_U50 == 0)] <-
+  gap_fill_post_filter_fp_lc$NEE_U50_f[(gap_fill_post_filter_fp_lc$PotRad_U50 == 0)]
+
+#Now turn any respiration values less than zero to NA's
+# gap_fill_post_filter_fp_lc$respiration[(gap_fill_post_filter_fp_lc$respiration <= 0)] <-
+#   NA
+
+#blank
+gap_fill_post_filter_fp_lc$blank = (gap_fill_post_filter_fp_lc$Reco_U50 *
+                                      0)
+
+gap_fill_post_filter_fp_lc$blank[(gap_fill_post_filter_fp_lc$blank == 0)] <-
+  NA
+
+#gap_fill_post_filter_fp_lc$blank
+
+```
+#Plotting NEE variables###
+##Final###
+
+####panel 1 half-hourly non-gap filled and half hourly gap filled###
+#panel 2 GPP_neg and Respiration
+#panel 3 cumulative sums of NEE, Respiration and neg GPP
+
+
+
+# The below code is as close as I am getting!
+
+```{r}
+
+gap_fill_post_filter_fp_lc$NEE_U50_f_1 = (gap_fill_post_filter_fp_lc$NEE_U50_f * 1)
+
+target.plot.var_nee <- c("NEE_U50_f",
+                         "Gpp_neg",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+  expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(GPP ~ ';' ~ Reco~'(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(Cumulative~sum~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  gap_fill_post_filter_fp_lc$TIMESTAMP$mday == 1 &
+    gap_fill_post_filter_fp_lc$TIMESTAMP$hour == 0 &
+    gap_fill_post_filter_fp_lc$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    gap_fill_post_filter_fp_lc$TIMESTAMP[month.loc[1]],
+    gap_fill_post_filter_fp_lc$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_nee.tmp <-
+  data.frame(
+    date = tapply(
+      gap_fill_post_filter_fp_lc$time.id,
+      gap_fill_post_filter_fp_lc$doy.id,
+      min
+    ),
+    daily_nee = tapply(
+      gap_fill_post_filter_fp_lc$NEE_U50_f,
+      gap_fill_post_filter_fp_lc$doy.id,
+      na.mean
+    ),
+    daily_gpp = tapply(
+      gap_fill_post_filter_fp_lc$Gpp_neg,
+      gap_fill_post_filter_fp_lc$doy.id,
+      na.mean
+    ),
+    daily_reco = tapply(
+      gap_fill_post_filter_fp_lc$respiration,
+      gap_fill_post_filter_fp_lc$doy.id,
+      na.mean
+    )
+  )
+
+## convert NEE, respiration gpp to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:4) {
+  # convert to daily units
+  daily_nee.tmp[, ll] <-
+    daily_nee.tmp[, ll] * 12 / 1000000 * 1800 * 48
+  daily_nee.tmp[is.na(daily_nee.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_nee.tmp[1:365, ll] <-
+    cumsum(daily_nee.tmp[1:365, ll])
+  daily_nee.tmp[366:nrow(daily_nee.tmp), ll] <-
+    cumsum(daily_nee.tmp[366:nrow(daily_nee.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_nee.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Concord_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$year[1] + 1900, "_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$yday[1] + 1, "_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$year[nrow(gap_fill_post_filter_fp_lc)] + 1900, "_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$yday[nrow(gap_fill_post_filter_fp_lc)] + 1, "_",
+    "all_NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 2 / 3, 1), new = FALSE)
+plot(
+  gap_fill_post_filter_fp_lc$time.id[is.na(gap_fill_post_filter_fp_lc$NEE_U50_orig)],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[is.na(gap_fill_post_filter_fp_lc$NEE_U50_orig)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-60, 30),
+  cex.axis = 0.8
+)
+
+points(
+  gap_fill_post_filter_fp_lc$time.id[!is.na(gap_fill_post_filter_fp_lc$NEE_U50_orig)],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[!is.na(gap_fill_post_filter_fp_lc$NEE_U50_orig)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+#abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = gap_fill_post_filter_fp_lc$time.id[1],
+  y = 30,
+  paste0("(a)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+## panel b
+par(fig = c(0, 1, 1 / 3, 2 / 3), new = TRUE)
+plot(
+  gap_fill_post_filter_fp_lc$time.id,
+  gap_fill_post_filter_fp_lc$Gpp_neg,
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-60, 30),
+  cex.axis = 0.8
+)
+
+points(
+  gap_fill_post_filter_fp_lc$time.id,
+  gap_fill_post_filter_fp_lc$respiration,
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = gap_fill_post_filter_fp_lc$time.id[1],
+  y = 30,
+  paste0("(b)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+## panel c
+par(fig = c(0, 1, 0, 1 / 3), new = TRUE)
+plot(
+  daily_nee.tmp$date,
+  daily_nee.tmp$daily_nee,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(-1200, 1200),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp$date,
+      daily_nee.tmp$daily_gpp,
+      lwd = 1.5,
+      col = "forestgreen",
+      lty = 2
+      )
+
+lines(daily_nee.tmp$date,
+      daily_nee.tmp$daily_reco,
+      lwd = 1.5,
+      col = "red",
+      lty = 3
+      )
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = gap_fill_post_filter_fp_lc$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = gap_fill_post_filter_fp_lc$time.id[1],
+  y = 1200,
+  paste0("(c)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[3]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.25),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+#caluclating uncertainy of cumulative fluxes
+
+#We can inspect, how the uncertainty scales with the flux magnitude.
+```{r}
+summary(gap_fill_post_filter_fp_lc$NEE_uStar_fsd)
+
+plot( NEE_uStar_fsd ~ NEE_uStar_fall, slice(gap_fill_post_filter_fp_lc, sample.int(nrow(gap_fill_post_filter_fp_lc),400)))
+```
+**Wrong aggregation without correlations**
+
+#With neglecting correlations among records, the uncertainty of the mean annual flux is computed by adding the variances. The mean is computed by m=∑xi/n. And hence its standard deviation by sd(m)=Var(m)−−−−−−√=∑Var(xi)/n2−−−−−−−−−−−√=nσ2¯/n2−−−−−−√=σ2¯/n−−√. This results in an approximate reduction of the average standard deviation σ2¯ by n−−√.
+
+```{r}
+gap_fill_post_filter_fp_lc %>% filter(NEE_uStar_fqc == 0) %>% summarise(
+  nRec = sum(is.finite(NEE_U50_f))
+  , varSum = sum(NEE_uStar_fsd^2, na.rm = TRUE)
+  , seMean = sqrt(varSum) / nRec
+  , seMeanApprox = mean(NEE_uStar_fsd, na.rma = TRUE) / sqrt(nRec)
+  ) %>% select(nRec, seMean, seMeanApprox)
+
+#The uncertainty calculated here is very low. Due to the large number of records. 
+```
+**Considering Correlations**
+
+#When observations are not independent of each other, the formulas now become Var(m)=s2/neff where s2=neffn(neff−1)∑ni=1σ2i, and with the number of effective observations neff decreasing with the autocorrelation among records (Bayley 1946, Zieba 2011).
+
+#The average standard deviation σ2i¯−−√ now approximately decreases only by about neff−−−−√:
+
+#Var(m)=s2neff=neffn(neff−1)∑ni=1σ2ineff=1n(neff−1)∑i=1nσ2i=1n(neff−1)nσ2i¯=σ2i¯(neff−1)
+
+#First we need to quantify the error terms, i.e. model-data residuals. For all the records of good quality, we have an original measured value NEE_uStar_orig and modelled value from MDS gapfilling, NEE_uStar_fall. The residual of bad-quality data is set to missing.
+
+```{r}
+results <- gap_fill_post_filter_fp_lc %>% 
+  mutate(
+    resid = ifelse(NEE_uStar_fqc == 0, NEE_uStar_orig - NEE_uStar_fall, NA )
+  )
+```
+
+#Now we can inspect the the autocorrelation of the errors.
+
+```{r}
+acf(results$resid, na.action = na.pass, main = "")
+
+#The empirical autocorrelation function shows strong positive autocorrelation in residuals up to a lag of ~8 records records.
+```
+
+
+
+#Computation of effective number of observations is provided by function computeEffectiveNumObs from package lognorm based on the empirical autocorrelation function for given model-data residuals.
+
+```{r}
+
+autoCorr <- computeEffectiveAutoCorr(results$resid)
+nEff <- computeEffectiveNumObs(results$resid, na.rm = TRUE)
+c( nEff = nEff, nObs = sum(is.finite(results$resid)))
+
+#We see that the effective number observations is about 1/2 of the overall number of observations
+```
+
+
+#Now we can use the formulas for the sum and the mean of correlated normally distributed variables to compute the uncertainty of the mean.
+
+#cumulative summary
+
+
+```{r}
+results %>% filter(NEE_uStar_fqc == 0) %>% summarise(
+  nRec = sum(is.finite(NEE_uStar_fsd))
+  , varMean = sum(NEE_uStar_fsd^2, na.rm = TRUE) / nRec / (!!nEff - 1)
+  , seMean = sqrt(varMean) 
+  #, seMean2 = sqrt(mean(NEE_uStar_fsd^2, na.rm = TRUE)) / sqrt(!!nEff - 1)
+  , seMeanApprox = mean(NEE_uStar_fsd, na.rm = TRUE) / sqrt(!!nEff - 1)
+  ) %>% select(seMean, seMeanApprox)
+
+#SE mean is still pretty low
+
+
+```
+**Daily aggregation**
+
+#When aggregating daily respiration, the same principles hold.
+
+#However, when computing the number of effective observations, we recommend using the empirical autocorrelation function estimated on longer time series of residuals (autoCorr computed above) in computeEffectiveNumObs instead of estimating them from the residuals of each day.
+
+```{r}
+
+
+aggDay <- results %>% group_by(doy.id) %>% 
+  summarise (
+    DateTime = first(TIMESTAMP)
+    , nRec = sum( NEE_uStar_fqc == 0, na.rm = TRUE)
+    , nEff = computeEffectiveNumObs(
+       resid, effAcf = !!autoCorr, na.rm = TRUE)
+    , NEE = mean(NEE_U50_f, na.rm = TRUE)*12/1000000*1800*48
+    , sdNEE = if (nEff <= 1) NA_real_ else sqrt(
+      mean(NEE_uStar_fsd^2, na.rm = TRUE) / (nEff - 1)) *12/1000000*1800*48 
+    , sdNEEuncorr = if (nRec == 0) NA_real_ else sqrt(
+       mean(NEE_uStar_fsd^2, na.rm = TRUE) / (nRec - 1))*12/1000000*1800*48
+  )
+aggDay
+
+
+plot(aggDay$DateTime, aggDay$NEE, type = "l", col = "black" , ylim = c(-8,8))
+lines(aggDay$DateTime, aggDay$NEE + aggDay$sdNEE, col="grey")
+lines(aggDay$DateTime, aggDay$NEE - aggDay$sdNEE, col="grey")
+
+
+# plot(aggDay$DateTime, aggDay$NEE, type = "l", col = "blue" , ylim = c(-3,5))
+# 
+# par(new = TRUE)
+# 
+# plot(aggDay$DateTime, aggDay$sdNEE, type = "l", ylim = c(-3,5))
+# 
+# par(new = TRUE)
+# 
+# plot(aggDay$DateTime, aggDay$sdNEEuncorr, type = "l", col = "red", ylim = c(-3,5))
+
+
+
+```
+#calculating uncertainty for the annual cumulative sums. 
+```{r}
+
+#creating a function to create a study year from 
+study_yr <- function(TIMESTAMP, start_month=7) {
+
+  # Year offset
+  offset = ifelse(TIMESTAMP$mon >= start_month - 1, 1, 0)
+  # study year
+  adj.year = TIMESTAMP$year + 1900 + offset
+  # Return the study year
+  adj.year
+}
+
+
+
+results$studyyear<-study_yr(results$TIMESTAMP)
+
+
+#annual NEE uncertainty calculating for 365 days from july 1
+agg_annual_2 <- results%>% group_by( studyyear
+                                            ) %>% 
+  summarise (
+    year_start = first(TIMESTAMP)
+    , year_end = last(TIMESTAMP)
+    , nRec = sum( NEE_uStar_fqc == 0, na.rm = TRUE)
+    , nEff = computeEffectiveNumObs(
+       resid, effAcf = !!autoCorr, na.rm = TRUE)
+    , NEE = mean(NEE_U50_f, na.rm = TRUE)*12/1000000*1800*48*365
+    #, sum_NEE = sum(NEE_uStar_f, na.rm = TRUE)
+    , sdNEE = if (nEff <= 1) NA_real_ else sqrt(
+      mean(NEE_uStar_fsd^2, na.rm = TRUE) / (nEff - 1)) *12/1000000*1800*48*365
+    #, seNEE = sdNEE/sqrt(nEff) #standard error of the mean, hmmm
+    , sdNEEuncorr = if (nRec == 0) NA_real_ else sqrt(
+       mean(NEE_uStar_fsd^2, na.rm = TRUE) / (nRec - 1))*12/1000000*1800*48*365
+  )
+agg_annual_2
+
+
+
+
+#caculating annual uncertainty. But this is for 2019, 2020, 2021. Real goal is 365 days from july 1, etc. Calculatated above
+# agg_annual <- results %>% group_by(Year) %>% 
+#   summarise (
+#     DateTime = first(TIMESTAMP)
+#     , nRec = sum( NEE_uStar_fqc == 0, na.rm = TRUE)
+#     , nEff = computeEffectiveNumObs(
+#        resid, effAcf = !!autoCorr, na.rm = TRUE)
+#     , NEE = mean(NEE_uStar_f, na.rm = TRUE)
+#     , sdNEE = if (nEff <= 1) NA_real_ else sqrt(
+#       mean(NEE_uStar_fsd^2, na.rm = TRUE) / (nEff - 1)) 
+#     , sdNEEuncorr = if (nRec == 0) NA_real_ else sqrt(
+#        mean(NEE_uStar_fsd^2, na.rm = TRUE) / (nRec - 1))
+#   )
+# agg_annual
+
+
+
+
+```
+
+
+```{r}
+plot(cumsum(tapply(gap_fill_post_filter_fp_lc$NEE_U50_f,
+            (gap_fill_post_filter_fp_lc$DOY),
+            function(x) mean(x,na.rm=T)))*12/1000000*1800*48,
+     xaxt='n',
+     xlab='Days since July 1 2019 ',
+     ylab= '',
+     main='Cumulative NEE with 5%, 50%, and 95% bootstrapped uncertainty distribution',
+     cex.main = 0.8,
+     ylim = c(-100,110),
+     lty=1,
+     col="red",
+     lwd=2,
+     type="l")
+mtext(side=2,expression(Cumulative~NEE ~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),line=2.5)
+abline(h=0,col="black")
+abline(v=365, col="blue")
+axis(side=1,at=seq(0,700,by=30))
+
+par(new=TRUE)
+
+plot(cumsum(tapply(gap_fill_post_filter_fp_lc$NEE_U05_f,
+            (gap_fill_post_filter_fp_lc$DOY),
+            function(x) mean(x,na.rm=T)))*12/1000000*1800*48,
+     xaxt='n',
+     xlab='Days since July 1 2019 ',
+     ylab= '',
+     main='',
+     ylim = c(-100,110),
+     lty=2,
+     col="grey",
+     lwd=2,
+     type="l")
+mtext(side=2,expression(Cumulative~NEE ~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),line=2.5)
+abline(h=0,col="black")
+abline(v=365, col="blue")
+axis(side=1,at=seq(0,700,by=30))
+
+
+par(new=TRUE)
+
+plot(cumsum(tapply(gap_fill_post_filter_fp_lc$NEE_U95_f,
+            (gap_fill_post_filter_fp_lc$DOY),
+            function(x) mean(x,na.rm=T)))*12/1000000*1800*48,
+     xaxt='n',
+     xlab='Days since July 1 2019 ',
+     ylab= '',
+     main='',
+     ylim = c(-100,110),
+     lty=2,
+     col="black",
+     lwd=2,
+     type="l")
+mtext(side=2,expression(Cumulative~NEE ~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),line=2.5)
+abline(h=0,col="black")
+abline(v=365, col="blue")
+axis(side=1,at=seq(0,700,by=30))
+
+```
+
+
+
+#plotting of MET Variables Tair, Tsoil, VWC, albedo, Rg, rH
+#these are individual plots of the complete gap filled data
+
+```{r}
+target.plot.var <- c("Tair",
+                     "Tsoil",
+                     "Precip_mm_Tot",
+                     "VWC_Avg",
+                     "Rg_f")
+
+target.plot.var.title <- c(
+  expression(Tair~'('~degree~C~')'),
+  expression(Tsoil~'('~degree~C~')'),
+  expression(P~'('~mm~')'),
+  expression(VWC~'('~m^{3}~m^{-3}~')'),
+  expression(Rg~'('~W~m^{-2}~')')
+)
+
+target.plot.var.title2 <- c(
+  NA,
+  NA,
+  expression(Cumulative~P~'('~mm~')'),
+  NA,
+  expression(Daily~Rg~'('~MJ~m^{-2}~d^{-1}~')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  gap_fill_post_filter_fp_lc$TIMESTAMP$mday == 1 &
+    gap_fill_post_filter_fp_lc$TIMESTAMP$hour == 0 &
+    gap_fill_post_filter_fp_lc$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    gap_fill_post_filter_fp_lc$TIMESTAMP[month.loc[1]],
+    gap_fill_post_filter_fp_lc$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+  
+png(
+  paste0(out.path, "Concord_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$year[1] + 1900, "_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$yday[1] + 1, "_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$year[nrow(gap_fill_post_filter_fp_lc)] + 1900, "_",
+    gap_fill_post_filter_fp_lc$TIMESTAMP$yday[nrow(gap_fill_post_filter_fp_lc)] + 1, "_",
+    "all_met_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4, 0.5, 4),
+    mar = c(0, 0, 0.25, 0))
+
+for (k1 in 1:length(target.plot.var)) {
+
+  par(fig = c(0, 1, 1 - k1/length(target.plot.var), 1 - (k1-1)/length(target.plot.var)),
+      new = ifelse(k1 == 1, FALSE, TRUE))
+  plot(
+    gap_fill_post_filter_fp_lc$time.id,
+    gap_fill_post_filter_fp_lc[, target.plot.var[k1]],
+    xlab = "",
+    ylab = "",
+    cex = 0.5,
+    col = "darkgrey",
+    bg = "lightgrey",
+    xaxt="n",
+    las = 1,
+    pch = 21,
+    xaxs = "i",
+    cex.axis = 0.8
+  )
+  
+  abline(v = 2020 + 290/366, col = "red", lwd = 2, lty = 4)
+  #abline(v = 2020.495, col = "black", lwd = 2, lty = 1)
+  
+  text(x = gap_fill_post_filter_fp_lc$time.id[1],
+       y = max(gap_fill_post_filter_fp_lc[, target.plot.var[k1]], na.rm = T),
+       paste0("(", letters[k1], ")"),
+       adj = c(0, 1), 
+       cex = 0.9)
+  
+  mtext(side = 2, 
+        target.plot.var.title[[k1]],
+        line = 2.5,
+        outer = FALSE,
+        cex = 0.8)
+
+  ## daily average line
+  daily.tmp <-
+    data.frame(
+      date = tapply(
+        gap_fill_post_filter_fp_lc$time.id,
+        gap_fill_post_filter_fp_lc$doy.id,
+        min
+      ),
+      daily = tapply(
+        gap_fill_post_filter_fp_lc[, target.plot.var[k1]],
+        gap_fill_post_filter_fp_lc$doy.id,
+        na.mean
+      )
+    )
+  
+  ## convert the following ones to daily or cumulative sum
+  if(target.plot.var[k1] == "Precip_mm_Tot") {
+    # convert to cumulative precipitation
+    daily.tmp$daily <- daily.tmp$daily * 48
+    daily.tmp$daily[is.na(daily.tmp$daily)] <- 0
+    
+    ## 
+    daily.tmp$daily[1:365] <- cumsum(daily.tmp$daily[1:365]) 
+    daily.tmp$daily[366:nrow(daily.tmp)] <- cumsum(daily.tmp$daily[366:nrow(daily.tmp)]) 
+    daily.tmp$daily[366] <- NA
+    
+    y.rng <- range(daily.tmp$daily, na.rm=T) * c(1, 1.05)
+    y.axis.lab <- seq(0, 250, 50)
+    
+  } else if (target.plot.var[k1] == "Rg_f") {
+    # convert from W m-2 (J m-2 s-1) to MJ m-2 d-1
+    daily.tmp$daily <- daily.tmp$daily * 24 * 60 * 60 / 1000000
+    y.rng <- range(daily.tmp$daily, na.rm=T) * c(1, 1.05)
+    y.axis.lab <- seq(0, 32, 8)
+    
+  } else {
+    y.rng <- par("usr")[3:4]
+  }
+
+  if(target.plot.var[k1] %in% c("Precip_mm_Tot", "Rg_f")){
+    par(new = TRUE)
+    plot(
+      gap_fill_post_filter_fp_lc$time.id[which(gap_fill_post_filter_fp_lc$time.id %in% daily.tmp$date)],
+      daily.tmp$daily,
+      type = "l",
+      lwd = 1.5,
+      col = "black",
+      xlab = "",
+      ylab = "",
+      xaxt = "n",
+      yaxt = "n",
+      las = 1,
+      xaxs = "i",
+      ylim = y.rng
+    )
+    
+    axis(side = 4,
+         at = y.axis.lab,
+         cex.axis = 0.8,
+         las = 1)
+    
+    mtext(side = 4, 
+          target.plot.var.title2[k1],
+          line = 2.5,
+          outer = FALSE,
+          cex = 0.8)
+    
+  } else {
+    
+    lines(
+      gap_fill_post_filter_fp_lc$time.id[which(gap_fill_post_filter_fp_lc$time.id %in% daily.tmp$date)],
+      daily.tmp$daily,
+      lwd = 1.5,
+      col = "black"
+    )
+  }
+
+  if(k1 == length(target.plot.var)) {
+    
+    axis(side = 1,
+         at = gap_fill_post_filter_fp_lc$time.id[month.loc],
+         labels = month.ticks,
+         tck = -.025,
+         cex.axis = 0.8)
+
+    axis(side = 1,
+         at = c(2019.75, 2020.5, 2021.25),
+         label = c(2019, 2020, 2021),
+         cex.axis = 0.8,
+         tck = -.025,
+         lty = 0,
+         bty = "n",
+         line = 0.9
+    )
+    
+    mtext(side = 1, 
+          "Month / Year",
+          line = 3,
+          outer = FALSE,
+          cex = 0.8)
+  }
+    
+}
+dev.off()
+
+```
+
+
+
+
+
+
+
+#plotting NEE variables- Rough Draft!
+
+```{r}
+# target.plot.var_nee <- c("NEE_uStar_orig",
+#                          "NEE_U50_f",
+#                          "Gpp_neg",
+#                          "respiration")
+# 
+# target.plot.var_nee.title <- c(
+#   expression(FC ~ '(' ~ mu ~ mol ~ m ^ { -2 } ~ s ^ { -1 } ~ ')'),
+#   expression(FC ~ gapfill),
+#   expression(GEP ~ '(' ~ mu ~ mol ~ m ^ { -2 } ~ s ^ { -1 } ~ ')'),
+#   expression(ER ~ '(' ~ mu ~ mol ~ m ^ { -2 } ~ s ^ { -1 } ~ ')'),
+#   NA
+# )
+# 
+# target.plot.var_nee.title2 <- c(
+#   expression('(' ~ gC ~ - ~ CO[2] ~ m ^ { -2 } ~ d ^ { -1 } ~ ')'),
+#   expression(Cumulative ~ NEE ~ '(' ~ g ~ C ~ m ^ { -2 } ~ ')'),
+#   NA,
+#   NA,
+#   NA
+# )
+# 
+# ## locate the start of each month
+# month.loc <- which(
+#   gap_fill_post_filter_fp_lc$TIMESTAMP$mday == 1 &
+#     gap_fill_post_filter_fp_lc$TIMESTAMP$hour == 0 &
+#     gap_fill_post_filter_fp_lc$TIMESTAMP$min == 0
+# )
+# month.ticks <-
+#   substr(
+#     seq(
+#       gap_fill_post_filter_fp_lc$TIMESTAMP[month.loc[1]],
+#       gap_fill_post_filter_fp_lc$TIMESTAMP[month.loc[length(month.loc)]],
+#       by = "months"
+#     ),
+#     6,
+#     7
+#   )
+# 
+# 
+# png(
+#   paste0(
+#     out.path,
+#     "Concord_",
+#     gap_fill_post_filter_fp_lc$TIMESTAMP$year[1] + 1900,
+#     "_",
+#     gap_fill_post_filter_fp_lc$TIMESTAMP$yday[1] + 1,
+#     "_",
+#     gap_fill_post_filter_fp_lc$TIMESTAMP$year[nrow(gap_fill_post_filter_fp_lc)] + 1900,
+#     "_",
+#     gap_fill_post_filter_fp_lc$TIMESTAMP$yday[nrow(gap_fill_post_filter_fp_lc)] + 1,
+#     "_",
+#     "all_NEE_",
+#     Sys.Date(),
+#     ".png"
+#   ),
+#   width = 5.5,
+#   height = 6,
+#   units = "in",
+#   res = 300,
+#   pointsize = 11,
+#   bg = "white"
+# )
+# par(oma = c(4, 4, 0.5, 4),
+#     mar = c(0, 0, 0.25, 0))
+# 
+# for (k1 in 1:length(target.plot.var_nee)) {
+#   par(
+#     fig = c(
+#       0,
+#       1,
+#       1 - k1 / length(target.plot.var_nee),
+#       1 - (k1 - 1) / length(target.plot.var_nee)
+#     ),
+#     new = ifelse(k1 == 1, FALSE, TRUE)
+#   )
+#   plot(
+#     gap_fill_post_filter_fp_lc$time.id,
+#     gap_fill_post_filter_fp_lc[, target.plot.var_nee[k1]],
+#     xlab = "",
+#     ylab = "",
+#     cex = 0.5,
+#     col = "darkgrey",
+#     bg = "lightgrey",
+#     xaxt = "n",
+#     las = 1,
+#     pch = 21,
+#     xaxs = "i",
+#     cex.axis = 0.8
+#   )
+#   
+#   abline(
+#     v = 2020 + 290 / 366,
+#     col = "red",
+#     lwd = 2,
+#     lty = 4
+#   )
+#   
+#   text(
+#     x = gap_fill_post_filter_fp_lc$time.id[1],
+#     y = max(gap_fill_post_filter_fp_lc[, target.plot.var_nee[k1]], na.rm = T),
+#     paste0("(", letters[k1], ")"),
+#     adj = c(0, 1),
+#     cex = 0.9
+#   )
+#   
+#   mtext(
+#     side = 2,
+#     target.plot.var_nee.title[[k1]],
+#     line = 2.5,
+#     outer = FALSE,
+#     cex = 0.8
+#   )
+#   
+#   ## daily average line
+#   daily_nee.tmp <-
+#     data.frame(
+#       date = tapply(
+#         gap_fill_post_filter_fp_lc$time.id,
+#         gap_fill_post_filter_fp_lc$doy.id,
+#         min
+#       ),
+#       daily_nee = tapply(
+#         gap_fill_post_filter_fp_lc[, target.plot.var_nee[k1]],
+#         gap_fill_post_filter_fp_lc$doy.id,
+#         na.mean
+#       )
+#     )
+#   
+#   ## convert NEE to cumulative sum of carbon
+#   if (target.plot.var_nee[k1] == "NEE_U50_f") {
+#     # convert to cumulative carbon
+#     daily_nee.tmp$daily_nee <-
+#       daily_nee.tmp$daily_nee * 12 / 1000000 * 1800 * 48
+#     daily_nee.tmp$daily_nee[is.na(daily_nee.tmp$daily_nee)] <- 0
+#     
+#     ##
+#     daily_nee.tmp$daily_nee[1:365] <-
+#       cumsum(daily_nee.tmp$daily_nee[1:365])
+#     daily_nee.tmp$daily_nee[366:nrow(daily_nee.tmp)] <-
+#       cumsum(daily_nee.tmp$daily_nee[366:nrow(daily_nee.tmp)])
+#     y.rng <- range(daily_nee.tmp$daily_nee, na.rm = T) * c(1, 1.05)
+#     y.axis.lab <- seq(0, 250, 50)
+#     
+#     
+#     
+#   } else {
+#     y.rng <- par("usr")[3:4]
+#   }
+#   
+#   if (target.plot.var_nee[k1] %in% c("NEE_U50_f", "NEE_uStar_orig")) {
+#     par(new = TRUE) #####for plottinng daily_nee gap filled data a cumulative sum over the non gap filled half hourly data we will do something similiar.
+#     plot(
+#       gap_fill_post_filter_fp_lc$time.id[which(gap_fill_post_filter_fp_lc$time.id %in% daily_nee.tmp$date)],
+#       daily_nee.tmp$daily_nee,
+#       type = "l",
+#       lwd = 1.5,
+#       col = "black",
+#       xlab = "",
+#       ylab = "",
+#       xaxt = "n",
+#       yaxt = "n",
+#       las = 1,
+#       xaxs = "i",
+#       ylim = y.rng
+#     )
+#     
+#     axis(
+#       side = 4,
+#       at = y.axis.lab,
+#       cex.axis = 0.8,
+#       las = 1
+#     )
+#     
+#     mtext(
+#       side = 4,
+#       target.plot.var_nee.title2[k1],
+#       line = 2.5,
+#       outer = FALSE,
+#       cex = 0.8
+#     )
+#     
+#   } else {
+#     lines(
+#       gap_fill_post_filter_fp_lc$time.id[which(gap_fill_post_filter_fp_lc$time.id %in% daily_nee.tmp$date)],
+#       daily_nee.tmp$daily_nee,
+#       lwd = 1.5,
+#       col = "black"
+#     )
+#   }
+#   
+#   if (k1 == length(target.plot.var_nee)) {
+#     axis(
+#       side = 1,
+#       at = gap_fill_post_filter_fp_lc$time.id[month.loc],
+#       labels = month.ticks,
+#       tck = -.025,
+#       cex.axis = 0.8
+#     )
+#     
+#     axis(
+#       side = 1,
+#       at = c(2019.75, 2020.5, 2021.25),
+#       label = c(2019, 2020, 2021),
+#       cex.axis = 0.8,
+#       tck = -.025,
+#       lty = 0,
+#       bty = "n",
+#       line = 0.9
+#     )
+#     
+#     mtext(
+#       side = 1,
+#       "Month / Year",
+#       line = 3,
+#       outer = FALSE,
+#       cex = 0.8
+#     )
+#   }
+#   
+# }
+# dev.off()
+
+```
+
+
+#Attempting to plot all the MET Variables as one figure. Rough Draft
+```{r}
+
+# pdf(paste0(out.path, Sys.Date(),"_MET_var.pdf"))
+# 
+# par(mfrow = c(4,2)) #This command allows us to combine plots
+# 
+# #ET cumulaive
+# plot(cumsum(tapply(gap_filled$h2o_flux_U50_f,
+#           (gap_filled$DOY),
+#             function(x) mean(x,na.rm=T)))*18.02/1000000*1800*48,
+#      xaxt='n',
+#      xlab='Days since July 1,2019',
+#      ylab=expression(ET~'('~mm~')'),
+#     # main='Figure 13',
+#      ylim = c(0,700),
+#      lty=1,
+#      col="red",
+#      lwd=2,
+#      type="l")
+# 
+# 
+# 
+# axis(side=1,at=seq(0,700,by=30))
+# 
+# 
+# abline(v=481, col="blue")
+# 
+# ######precipitation cumulative
+# plot(cumsum(tapply(post_filter$Precip_mm_Tot,
+#           (post_filter$DOY),
+#             function(x) sum(x,na.rm=T))),
+#      xaxt='n',
+#      xlab='Days since July 1,2019',
+#      ylab=expression(Precip~'('~mm~')'),
+#      #main='Figure 14',
+#      ylim = c(0,450),
+#      lty=1,
+#      col="red",
+#      lwd=2,
+#      type="l")
+# 
+# 
+# 
+# axis(side=1,at=seq(0,700,by=30))
+# 
+# abline(v=481, col="blue")
+# 
+# ####air temperature######
+# plot(gap_fill_post_filter_fp_lc$TIMESTAMP, gap_fill_post_filter_fp_lc$Tair_f,
+#     
+# 
+#      main = '',
+#      xlab='Time',
+#      ylab= 'Tair',
+#     
+#      col = 'grey',
+#      cex = 0.6)
+# 
+# abline(v= as.POSIXct("2020-10-16"), col="red")
+# par(new = TRUE)
+# 
+# plot(tapply(gap_fill_post_filter_fp_lc$Tair_f, gap_fill_post_filter_fp_lc$doy.id,function(x) mean(x,na.rm=T)),
+#      xaxt= 'n',
+#      yaxt= 'n',
+#      xlab='', 
+#      ylab='', 
+#     
+#      main='', 
+#     
+#      lty=1,col="black",
+#      lwd=2,type="l")
+# 
+# 
+# 
+# #Soil temperature###
+# plot(gap_fill_post_filter_fp_lc$TIMESTAMP, gap_fill_post_filter_fp_lc$Tsoil,
+#     
+# 
+#      main = '',
+#      xlab='Time',
+#      ylab= 'Tsoil',
+#     
+#      col = 'grey',
+#      cex = 0.6)
+# 
+# abline(v= as.POSIXct("2020-10-16"), col="red")
+# 
+# par(new = TRUE)
+# 
+# plot(tapply(gap_fill_post_filter_fp_lc$Tsoil, gap_fill_post_filter_fp_lc$doy.id,function(x) mean(x,na.rm=T)),
+#      xaxt= 'n',
+#      yaxt= 'n',
+#      xlab='', 
+#      ylab='', 
+#     
+#      main='', 
+#     
+#      lty=1,col="black",
+#      lwd=2,type="l")
+# 
+# 
+# 
+# ###VWC#####
+# 
+# plot(gap_fill_post_filter_fp_lc$TIMESTAMP, gap_fill_post_filter_fp_lc$VWC_Avg ,
+#     
+# 
+#      main = '',
+#      xlab='Time',
+#      ylab= 'VWC',
+#     
+#      col = 'grey',
+#      cex = 0.6)
+# 
+# abline(v= as.POSIXct("2020-10-16"), col="red")
+# 
+# par(new = TRUE)
+# 
+# plot(tapply(gap_fill_post_filter_fp_lc$VWC_Avg, gap_fill_post_filter_fp_lc$doy.id,function(x) mean(x,na.rm=T)),
+#      xaxt= 'n',
+#      yaxt= 'n',
+#      xlab='', 
+#      ylab='', 
+#     
+#      main='', 
+#     
+#      lty=1,col="black",
+#      lwd=2,type="l")
+# 
+# 
+# 
+# #######Rg
+# plot(gap_fill_post_filter_fp_lc$TIMESTAMP, gap_fill_post_filter_fp_lc$Rg_f ,
+#     
+# 
+#      main = '',
+#      xlab='Time',
+#      ylab= 'Rg',
+#     
+#      col = 'grey',
+#      cex = 0.6)
+# 
+# abline(v= as.POSIXct("2020-10-16"), col="red")
+# 
+# par(new = TRUE)
+# 
+# plot(tapply(gap_fill_post_filter_fp_lc$Rg_f, gap_fill_post_filter_fp_lc$doy.id,function(x) mean(x,na.rm=T)),
+#      xaxt= 'n',
+#      yaxt= 'n',
+#      xlab='', 
+#      ylab='', 
+#     
+#      main='', 
+#     
+#      lty=1,col="black",
+#      lwd=2,type="l")
+# 
+# 
+# 
+# 
+#   #  daily.tmp<-data.frame(date=tapply(gap_fill_post_filter_fp_lc$time.id,gap_fill_post_filter_fp_lc$doy.id,min),
+#   #                       daily=tapply(gap_fill_post_filter_fp_lc,gap_fill_post_filter_fp_lc$doy.id,na.mean))
+#   # 
+#   # lines(gap_fill_post_filter_fp_lc$TIMESTAMP[which(gap_fill_post_filter_fp_lc$time.id %in% daily.tmp$date)],
+#   #       daily.tmp$daily,
+#   #       lwd=1.5,col="black")
+#   
+# 
+# # abline(v= as.POSIXct("2020-10-16"), col="black", lty = 5, lwd =2))
+# 
+# #albedo
+# plot(gap_fill_post_filter_fp_lc$TIMESTAMP[gap_fill_post_filter_fp_lc$albedo>0 & gap_fill_post_filter_fp_lc$albedo < 0.4  ], gap_fill_post_filter_fp_lc$albedo[gap_fill_post_filter_fp_lc$albedo>0 & gap_fill_post_filter_fp_lc$albedo < 0.4 ],
+#     
+# 
+#      main = '',
+#      xlab='Time',
+#      ylab= 'Albedo',
+#     
+#      col = 'green',
+#      cex = 0.6,
+#      
+#     
+# 
+# abline(v= as.POSIXct("2020-10-16"), col="red"))
+# 
+# 
+# 
+# 
+# 
+# dev.off()
+# 
+# ```
+# 
+# 
+# #energy balance with gap filled data 
+# ```{r}
+# #colnames(gap_fill_post_filter)
+# 
+# gap_fill_post_filter$E_ng = (gap_fill_post_filter$Correct_NR -((gap_fill_post_filter$Correct_shf_2 + gap_fill_post_filter$Correct_shf_1)/2)) #elimnated and did not inlcude shf1 
+# 
+# 
+# 
+# 
+# summary(gap_fill_post_filter$E_ng )
+# plot(gap_fill_post_filter$E_ng)
+# 
+# gap_fill_post_filter$E_le_and_H =(gap_fill_post_filter$LE_f +gap_fill_post_filter$H_f)
+# 
+# summary(gap_fill_post_filter$E_le_and_H  )
+# 
+# plot(gap_fill_post_filter$E_le_and_H )
+# 
+# scatter.smooth(gap_fill_post_filter$E_ng, gap_fill_post_filter$E_le_and_H,
+#                xlab=expression(Net~Radiation~minus~soil~heat~flux~'('~W~m^{-2}~')'), 
+#                ylab= expression(Latent~and~Sensible~Heat~'('~W~m^{-2}~')'), 
+#                main='')
+# #par(New=TRUE)
+# #plot(gap_fill_post_filter$E_ng, gap_fill_post_filter$E_le_and_H,
+# # xlab=expression(Net~Radiation~minus~soil~heat~flux~'('~W~m^{-2}~')'), 
+# #ylab= expression(Latent~and~Sensible~Heat~'('~W~m^{-2}~')'), 
+# # main='')
+# 
+# lm(gap_fill_post_filter$E_le_and_H  ~ gap_fill_post_filter$E_ng)
+# 
+# #coefficient is energy balance
+# summary(lm(gap_fill_post_filter$E_le_and_H  ~ gap_fill_post_filter$E_ng-1))
+# 
+# #energy balance after extending the boom 
+# #extended the boom on 7-29-2020
+# #extending it made it worse...oh man. but as the rain has come and grass starts to fill in it is starting to improve again starting in January. I think this is an issue of the sensors settling in with rain and ground cover and getting some semblance of the overall landscape
+# summary(lm(gap_fill_post_filter$E_le_and_H[gap_fill_post_filter$TIMESTAMP > as.POSIXct("2021-01-01")]  ~ gap_fill_post_filter$E_ng [gap_fill_post_filter$TIMESTAMP > as.POSIXct("2021-01-01")]-1))
+# 
+# 
+# #energy balance before extending the boom
+# summary(lm(gap_fill_post_filter$E_le_and_H[gap_fill_post_filter$TIMESTAMP < as.POSIXct("2020-07-29")]  ~ gap_fill_post_filter$E_ng [gap_fill_post_filter$TIMESTAMP < as.POSIXct("2020-07-29")]-1))
+
+
+```
+
+#diurnal patterns for soil heat fluxes
+```{r}
+#all time pattern of SHF1 plate
+plot(tapply(gap_fill_post_filter$Correct_shf_1, gap_fill_post_filter$time,function(x) mean(x,na.rm=T)), main= "SHF1 Alltime")
+
+# #diurinal pattern SHF1 for April. # looks good
+# plot(tapply(subset(gap_fill_post_filter, DOY_1 >= 92 & DOY_1<= 121)$Correct_shf_1, subset(gap_fill_post_filter, DOY_1 >= 92 & DOY_1<= 121) $time,function(x) mean(x,na.rm=T)), main= "SHF1 April")
+# 
+# 
+# #diurinal pattern SHF1 for May.  looks wack. but not as bad as June
+# plot(tapply(subset(gap_fill_post_filter, DOY_1 >= 122 & DOY_1<= 152)$Correct_shf_1, subset(gap_fill_post_filter, DOY_1 >= 122 & DOY_1<= 152) $time,function(x) mean(x,na.rm=T)), main= "SHF1 May")
+
+plot(tapply(subset(gap_fill_post_filter, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$Correct_shf_1, subset(gap_fill_post_filter, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$time,function(x) mean(x,na.rm=T)), main= "SHF1> July 21", xlab = "Every 30 minutes", ylab = "Soil Heat Flux")
+
+plot_July_2020<-plot(tapply(subset(gap_fill_post_filter, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$Correct_shf_2, subset(gap_fill_post_filter, TIMESTAMP>= "2020-07-22 0:00 GMT-8" )$time,function(x) mean(x,na.rm=T)), main= "SHF2> July 21", xlab = "Every 30 minutes", ylab = "Soil Heat Flux")
+
+
+
+
+#gap_fill_post_filter$TIMESTAMP$mon<=3|gap_fill_post_filter$TIMESTAMP$mon>=11
+# format="%m/%d/%Y %H:%M",  tz = "Etc/GMT-8")
+
+# #diurinal pattern SHF1 for June. # looks wack still filtered out
+# plot(tapply(subset(gap_fill_post_filter, DOY_1 >= 153 & DOY_1<= 178)$Correct_shf_1, subset(gap_fill_post_filter, DOY_1 >= 153 & DOY_1<= 178) $time,function(x) mean(x,na.rm=T)), main= "SHF1 June")
+
+####################################
+#SHF2 for comparison
+
+#all time pattern of SHF2 plate
+plot(tapply(gap_fill_post_filter$Correct_shf_2, gap_fill_post_filter$time,function(x) mean(x,na.rm=T)), main= "SHF2 All Time")
+# 
+# #diurinal pattern SHF2 for April. # looks good
+# plot(tapply(subset(gap_fill_post_filter, DOY_1 >= 92 & DOY_1<= 121)$Correct_shf_2, subset(gap_fill_post_filter, DOY_1 >= 92 & DOY_1<= 121) $time,function(x) mean(x,na.rm=T)), main= "SHF2 April")
+# 
+# 
+# #diurinal pattern SHF2 for May. 
+# plot(tapply(subset(gap_fill_post_filter, DOY_1 >= 122 & DOY_1<= 152)$Correct_shf_2, subset(gap_fill_post_filter, DOY_1 >= 122 & DOY_1<= 152) $time,function(x) mean(x,na.rm=T)), main= "SHF2 May")
+
+
+
+#diurinal pattern SHF2 for June. # looks good. So SHF1 is emitting noise. 
+# plot(tapply(subset(gap_fill_post_filter, DOY_1 >= 153 & DOY_1<= 178)$Correct_shf_2, subset(gap_fill_post_filter, DOY_1 >= 153 & DOY_1<= 178) $time,function(x) mean(x,na.rm=T)), main= "SHF 2 June")
+
+```
+
+
+#Begining of ANCOVA Analysis
+
+#first sorting into treatment and control areas
+#second sorting into treatment area pre and post compost
+
+```{r}
+
+
+#Sorting the treatment and and non-treatment control area for analysis
+gap_fill_post_filter_fp_lc $day_and_night_fp_filter<-rep("exclude",nrow(gap_fill_post_filter_fp_lc))
+
+gap_fill_post_filter_fp_lc$day_and_night_fp_filter[which(!is.na(gap_fill_post_filter_fp_lc$fpt_weight_treatment)&
+                                 gap_fill_post_filter_fp_lc$fpt_weight_treatment>=0.7)]<-"treatment" 
+
+gap_fill_post_filter_fp_lc$day_and_night_fp_filter[which(!is.na(gap_fill_post_filter_fp_lc$fpt_weight_treatment)&
+                                 gap_fill_post_filter_fp_lc$fpt_weight_treatment< 0.3
+                                 )]<-"control" 
+table(gap_fill_post_filter_fp_lc$day_and_night_fp_filter)
+##############################################################################
+
+#nightime sorting of data for ANCOVA analysis
+# gap_fill_post_filter_fp_lc$night_wind_filter<-rep("exclude",nrow(gap_fill_post_filter_fp_lc))
+# 
+# gap_fill_post_filter_fp_lc$night_wind_filter[which(!is.na(gap_fill_post_filter_fp_lc$wind_dir)&
+#                                  gap_fill_post_filter_fp_lc$wind_dir>=150&
+#                                  gap_fill_post_filter_fp_lc$wind_dir<=225 & 
+#                                 gap_fill_post_filter_fp_lc$u. > 0.1 &
+#                                 gap_fill_post_filter_fp_lc$daytime== 0)]<-"treatment" 
+# 
+# gap_fill_post_filter_fp_lc$night_wind_filter[which(!is.na(gap_fill_post_filter_fp_lc$wind_dir)&
+#                                  gap_fill_post_filter_fp_lc$wind_dir>=230&
+#                                  gap_fill_post_filter_fp_lc$wind_dir<=300 &
+#                                 gap_fill_post_filter_fp_lc$u. > 0.1&
+#                                  gap_fill_post_filter_fp_lc$daytime== 0)]<-"control" 
+# table(gap_fill_post_filter_fp_lc$night_wind_filter)
+###########################################################################################
+#daytime sorting of data for ANCOVA analsi
+# gap_fill_post_filter_fp_lc$day_fp_filter<-rep("exclude",nrow(gap_fill_post_filter_fp_lc))
+# 
+# gap_fill_post_filter_fp_lc$day_fp_filter[which(!is.na(gap_fill_post_filter_fp_lc$fpt_weight_treatment)&
+#                                  gap_fill_post_filter_fp_lc$fpt_weight_treatment>= 0.7&
+#                                
+#                                 gap_fill_post_filter_fp_lc$PotRad_U50 >0 )]<-"treatment" 
+# 
+# gap_fill_post_filter_fp_lc$day_fp_filter[which(!is.na(gap_fill_post_filter_fp_lc$fpt_weight_treatment)&
+#                                  gap_fill_post_filter_fp_lc$fpt_weight_treatment< 0.3&
+#                               
+#                                 gap_fill_post_filter_fp_lc$PotRad_U50> 0)]<-"control" 
+# table(gap_fill_post_filter_fp_lc$day_fp_filter)
+
+####################################################################################
+
+```
+
+
+#Sorting into pre-compost and post compost application treatment area
+```{r}
+
+#Sorting the treatment area into the pre and post compost application for analysis
+gap_fill_post_filter_fp_lc $treat_pre_post_cmpst_filt<-rep("exclude",nrow(gap_fill_post_filter_fp_lc))
+
+gap_fill_post_filter_fp_lc$treat_pre_post_cmpst_filt[which(!is.na(gap_fill_post_filter_fp_lc$fpt_weight_treatment)&
+                                 gap_fill_post_filter_fp_lc$fpt_weight_treatment>=0.7&
+                 gap_fill_post_filter_fp_lc$TIMESTAMP> as.POSIXct("2020-10-16")         
+                 )        
+                 ]<-"treatment_post_compost" 
+
+gap_fill_post_filter_fp_lc$treat_pre_post_cmpst_filt[which(!is.na(gap_fill_post_filter_fp_lc$fpt_weight_treatment)&
+                                 gap_fill_post_filter_fp_lc$fpt_weight_treatment>= 0.7 &
+                 gap_fill_post_filter_fp_lc$TIMESTAMP < as.POSIXct("2020-10-16")         
+                 )        
+                 
+                                 ]<-"treatment_pre_compost" 
+table(gap_fill_post_filter_fp_lc$treat_pre_post_cmpst_filt)
+
+```
+
+
+
+#ANCOVA of NEE Comparing the the treatment to the control areas
+
+
+```{r}
+#ANCOVA and Daytime NEE all year Comparison treatment and control area
+NEE_by_fp_LC_all_year<- lmer(NEE_U50_f ~ Rg_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$PotRad_U50 >0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude",])
+
+summary(NEE_by_fp_LC_all_year)
+Anova(NEE_by_fp_LC_all_year)
+#shapiro.test(resid(NEE_by_fp_LC_all_year))
+
+```
+
+```{r}
+
+#growing season treatment v.s control area
+NEE_by_fp_LC_growing_season <- lmer(NEE_U50_f ~ Rg_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$PotRad_U50>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05),])
+
+summary(NEE_by_fp_LC_growing_season)
+Anova(NEE_by_fp_LC_growing_season)
+shapiro.test(resid(NEE_by_fp_LC_growing_season))
+
+```
+
+```{r}
+
+#dry season  treatment v.s control area
+NEE_by_fp_LC_dry_season <- lmer(NEE_U50_f ~ Rg_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$PotRad_U50>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg < 0.05),])
+
+summary(NEE_by_fp_LC_dry_season)
+Anova(NEE_by_fp_LC_dry_season)
+#shapiro.test(resid(NEE_by_fp_LC_dry_season))
+
+
+```
+
+
+#ANCOVA of NEE comparing treatment area, pre and post compost application
+
+
+```{r}
+
+#Comparison of NEE pre and post compost application
+#No filter for growing season
+
+NEE_pre_post_compost<- lmer(NEE_U50_f ~ Rg_f
+                     + treat_pre_post_cmpst_filt +(1|treat_pre_post_cmpst_filt),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$PotRad_U50 >0 &
+                                 gap_fill_post_filter_fp_lc$treat_pre_post_cmpst_filt!="exclude",])
+
+summary(NEE_pre_post_compost)
+Anova(NEE_pre_post_compost)
+```
+
+```{r}
+#growing season
+NEE_Pre_post_growing_season <- lmer(NEE_U50_f ~ Rg_f
+                     + treat_pre_post_cmpst_filt +(1|treat_pre_post_cmpst_filt),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$PotRad_U50>0 &
+                                 gap_fill_post_filter_fp_lc$treat_pre_post_cmpst_filt!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg >= 0.02),])
+
+summary(NEE_Pre_post_growing_season)
+Anova(NEE_Pre_post_growing_season)
+shapiro.test(resid(NEE_Pre_post_growing_season))
+```
+
+
+#ANCOVA of LE
+
+```{r}
+#all year
+LE_by_fp_LC_all_year<- lmer(LE_f ~ Correct_NR
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude",])
+
+summary(LE_by_fp_LC_all_year)
+Anova(LE_by_fp_LC_all_year)
+#shapiro.test(resid(LE_by_fp_LC_all_year))
+```
+
+```{r}
+#growing season
+LE_by_fp_LC_growing_season <- lmer(LE_f ~ Correct_NR
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05),])
+
+summary(LE_by_fp_LC_growing_season)
+Anova(LE_by_fp_LC_growing_season)
+shapiro.test(resid(LE_by_fp_LC_growing_season))
+```
+
+```{r}
+
+#dry season
+LE_by_fp_LC_dry_season <- lmer(LE_f ~ Correct_NR
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg < 0.05),])
+
+summary(LE_by_fp_LC_dry_season)
+Anova(LE_by_fp_LC_dry_season)
+shapiro.test(resid(LE_by_fp_LC_dry_season))
+```
+
+#ANCOVA of H by all time, growing, and dry season
+
+```{r}
+#all year
+H_by_fp_LC_all_year<- lmer(H_f ~ Correct_NR
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude",])
+
+summary(H_by_fp_LC_all_year)
+Anova(H_by_fp_LC_all_year)
+#shapiro.test(resid(H_by_fp_LC_all_year))
+```
+
+```{r}
+#growing season
+H_by_fp_LC_growing_season <- lmer(H_f ~ Correct_NR
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05),])
+
+summary(H_by_fp_LC_growing_season)
+Anova(H_by_fp_LC_growing_season)
+shapiro.test(resid(H_by_fp_LC_growing_season))
+```
+
+
+```{r}
+
+#dry season
+H_by_fp_LC_dry_season <- lmer(H_f ~ Correct_NR
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg < 0.05),])
+
+summary(H_by_fp_LC_dry_season)
+Anova(H_by_fp_LC_dry_season)
+shapiro.test(resid(H_by_fp_LC_dry_season))
+
+```
+
+
+
+#plotting co2 fluxs by net radiation by landcover type
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.6 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.6  ],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.6 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.6],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = ' Day and Night Co2 fluxes by net radiation and land cover',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.6 ],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.6 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Wetland Areas', ' Treatment LC'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+#Daytime Co2 fuxes by incoming radiation and land cover
+
+```{r}
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$Rg_f>0],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$Rg_f>0 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = 'Figure 4',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Incoming Radiation (Daytime)',
+  ylab = '',
+
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ Rg_f>0],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ Rg_f>0],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+ xlab = '',
+  ylab = '',
+
+  main = '',
+
+  cex = 0.6,
+  col = "red"
+)
+
+#par(new = TRUE)
+
+####adding in control area. No half hourly footprint is solely more than even 50% from the control area. need to use wetland
+# plot(
+#   gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_control >= 0.30 &
+#                                          gap_fill_post_filter_fp_lc$ Rg_f>0],
+#   gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_control >=0.30 &
+#                                        gap_fill_post_filter_fp_lc$ Rg_f>0],
+#   # xaxt= 'n',
+#   # yaxt= 'n',
+#   abline(h = 0, col = "darkgrey"),
+#   ylim = c(-20, 20),
+#   xlim = c(0, 600),
+#  xlab = '',
+#   ylab = '',
+# 
+#   main = '',
+# 
+#   cex = 0.6,
+#   col = "green"
+# )
+
+mtext(side=2,expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),line=2.5)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Control Area with Wetlands', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+#plotting pre compost application v.s post compost application by daytime daytime NEE for the compost applied area by incoming radiation
+
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$PotRad_U50 >0 &
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP < as.POSIXct("2020-10-16") &
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.00 ],
+  
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$PotRad_U50 >0 &
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP < as.POSIXct("2020-10-16") &
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.00],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = 'Treatment area, pre and post compost application',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Incoming Radiation (Daytime)',
+  ylab = '',
+
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+plot(
+gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ PotRad_U50>0 &
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP >= as.POSIXct("2020-10-16")&
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.00],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ PotRad_U50>0 &
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP >= as.POSIXct("2020-10-16")&
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.00],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+ xlab = '',
+  ylab = '',
+
+  main = '',
+
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Treatment area before compost application', ' Treatment area afer compost application'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+#plotting NEE Treatment v.s control after compost application
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$TIMESTAMP[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                       
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP > as.POSIXct("2020-10-20")],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                      
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP > as.POSIXct("2020-10-20")],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = 'NEE Post Compost Application',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  #xlim = c(0, 600),
+  xlab = 'Time (Post Compost Application)',
+  ylab = '',
+
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+plot(
+gap_fill_post_filter_fp_lc$TIMESTAMP[gap_fill_post_filter_fp_lc$fpt_weight_treatment < 0.3 &
+                                       
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP > as.POSIXct("2020-10-20")]
+                                     ,
+
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment < 0.3&
+                                      
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP > as.POSIXct("2020-10-20")],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  #xlim = c(0, 600),
+ xlab = '',
+  ylab = '',
+
+  main = '',
+
+  cex = 0.6,
+  col = "red"
+)
+
+mtext(side=2,expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),line=2.5)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c(' Treatment Grassland' ,'Control Area with Wetlands'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+
+```
+
+
+
+#NEE from first year growing season v.s second year growing season by time VWC >0.01
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$TIMESTAMP[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP < as.POSIXct("2020-10-01")&
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.01],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                      
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP < as.POSIXct("2020-10-01")   &
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.01],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = '2019-2020 Growing Season (pre-compost)',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  #xlim = c(0, 600),
+  xlab = '',
+  ylab = '',
+
+  cex = 0.6,
+  col = "blue"
+)
+
+#par(new = TRUE)
+
+plot(
+gap_fill_post_filter_fp_lc$TIMESTAMP[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP >= as.POSIXct("2020-10-01") &
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.01],
+
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                      
+                                   gap_fill_post_filter_fp_lc$TIMESTAMP >= as.POSIXct("2020-10-01") &
+                                     gap_fill_post_filter_fp_lc$VWC_Avg >= 0.01],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = '2020-2021 Growing Season (post-compost)',
+  abline(h = 0, col = "darkgrey"),
+  
+  ylim = c(-20, 20),
+  #xlim = c(0, 600),
+ xlab = '',
+  ylab = '',
+
+
+
+  cex = 0.6,
+  col = "red"
+)
+
+
+```
+
+
+
+
+
+#NEE in wet season
+
+```{r}
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment < 0.3  & 
+                                         gap_fill_post_filter_fp_lc$Rg_f>0 
+                                    &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[
+                                         gap_fill_post_filter_fp_lc$fpt_weight_treatment < 0.3 &
+                                           gap_fill_post_filter_fp_lc$Rg_f>0 
+                                    &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = 'Figure 5',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Incoming Radiation (Daytime Growing Season)',
+  ylab = '',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ Rg_f>0&
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ Rg_f>0&
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+ xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+mtext(side=2,expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),line=2.5)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Control Area with Wetlands', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+```{r}
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 & 
+                                         gap_fill_post_filter_fp_lc$Rg_f>0 
+                                    &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$Rg_f>0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  main = 'Figure 6',
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+  xlab = 'Incoming Radiation (Daytime Dry Season)',
+  ylab = '',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ Rg_f>0&
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  gap_fill_post_filter_fp_lc$NEE_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ Rg_f>0&
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(-20, 20),
+  xlim = c(0, 600),
+ xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+mtext(side=2,expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),line=2.5)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Control Area with Wetlands', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+
+
+#daytime LE net radiation and land cover
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 & 
+                                         gap_fill_post_filter_fp_lc$Rg_f>0],
+  gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$Rg_f>0 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-50,600),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation (Daytime)',
+ ylab = '',
+  
+ # main = ' Day Time LE by net radiation and land cover',
+  
+  cex = 0.6,
+
+  col = "blue"
+)
+ mtext(side=2,expression(Latent~Heat~'('~W~m^{-2}~')'),line=2.5)
+
+
+par(new = TRUE)
+
+                              
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ Rg_f>0],
+  gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ Rg_f>0],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-50, 600),
+  xlim = c(-100, 700),
+  xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+
+  col = "red"
+
+)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Wetland Areas', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+#Daytime LE by RG and ground cover
+```{r}
+# 
+# plot(
+#   gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.6 |
+#                                          gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.6 & 
+#                                          gap_fill_post_filter_fp_lc$ Rg_f > 0],
+#   gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.6 
+#                                       |
+#                                          gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.6 &
+#                                         gap_fill_post_filter_fp_lc$ Rg_f > 0 ],
+#   # xaxt= 'n',
+#   # yaxt= 'n',
+#   abline(h = 0, col = "darkgrey"),
+#  ylim = c(-20,600),
+#   xlim = c(0, 800),
+#   xlab = 'Rg',
+#  ylab = expression(LE~'('~W~m^{-2}~')'),
+#   
+#   main = ' Day Time LE by Rg and land cover',
+#   
+#   cex = 0.6,
+#   col = "blue"
+# )
+# 
+# par(new = TRUE)
+# 
+# 
+# plot(
+#   gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.6 &
+#                                          gap_fill_post_filter_fp_lc$ Rg_f>0],
+#   gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.6 &
+#                                        gap_fill_post_filter_fp_lc$ Rg_f > 0],
+#   # xaxt= 'n',
+#   # yaxt= 'n',
+#   abline(h = 0, col = "darkgrey"),
+#  ylim = c(-20, 600),
+#   xlim = c(0, 800),
+#   xlab = 'Rg',
+#   ylab = expression(LE~'('~W~m^{-2}~')'),
+#   
+#   main = '',
+#   
+#   cex = 0.6,
+#   col = "red"
+# )
+# 
+# #creating the legend
+# legend(
+#   x = 'topright',
+#   legend = c('Wetland Areas', ' Treatment LC'),
+#   pch = 1,
+#   col = c('blue', 'red')
+# )
+```
+
+
+#Day time LE by Net Radiation and land cover during growing season VWC> 0.05
+
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 & 
+                                         gap_fill_post_filter_fp_lc$ Rg_f >= 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05 ],
+  gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$
+                                    Rg_f > 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  main = 'Figure 7',
+ ylim = c(-20,600),
+  xlim = c(0, 800),
+  xlab = 'Net Radiation (Daytime Growing Season)',
+ ylab = '',
+  
+ # main = ' Day Time LE by Net Radiation and land cover (Growing Season)',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc $ 
+                                    Rg_f>0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7  &
+                                       gap_fill_post_filter_fp_lc$
+                                    Rg_f > 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-20, 600),
+  xlim = c(0, 800),
+  xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+ mtext(side=2,expression(Latent~Heat~'('~W~m^{-2}~')'),line=2.5)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Control Area with Wetlands', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+
+#Day time Le by Net Radiation Non growing season
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 & 
+                                         gap_fill_post_filter_fp_lc$ Rg_f >= 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05 ],
+  gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$
+                                    Rg_f > 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  main = 'Figure 8',
+ ylim = c(-20,600),
+  xlim = c(0, 800),
+  xlab = 'Net Radiation (Daytime Dry Season)',
+ ylab = '',
+  
+ # main = ' Day Time LE by Net Radiation and land cover (Dry Season)',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc $ 
+                                    Rg_f>0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  gap_fill_post_filter_fp_lc$LE_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7  &
+                                       gap_fill_post_filter_fp_lc$
+                                    Rg_f > 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-20, 600),
+  xlim = c(0, 800),
+  xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+ mtext(side=2,expression(Latent~Heat~'('~W~m^{-2}~')'),line=2.5)
+legend(
+  x = 'topright',
+  legend = c('Control Area with Wetlands', ' Treatment Grasslands'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+
+#H20 fluxes by land cover
+
+```{r}
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 & 
+                                         gap_fill_post_filter_fp_lc$ Rg_f >= 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05 ],
+  gap_fill_post_filter_fp_lc$h2o_flux_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$
+                                    Rg_f > 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-10,10),
+  xlim = c(0, 800),
+  xlab = 'Rg',
+ ylab = 'water fluxes',
+  
+  main = ' Day Time Water fluxes by Rg and land cover (Dry Season)',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc $ 
+                                    Rg_f>0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  gap_fill_post_filter_fp_lc$h2o_flux_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7  &
+                                       gap_fill_post_filter_fp_lc$
+                                    Rg_f > 0 &
+                                   gap_fill_post_filter_fp_lc$VWC_Avg < 0.05],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-10, 10),
+  xlim = c(0, 800),
+  xlab = 'Rg',
+  ylab = 'water fluxes',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Wetland Areas', ' Treatment LC'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+
+
+
+# Daytime sensible heat by NR and NEE
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 & 
+                                         gap_fill_post_filter_fp_lc$Rg_f>0 ],
+  gap_fill_post_filter_fp_lc$H_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$Rg_f > 0 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  main = 'Figure 9',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-50,600),
+  xlim = c(-100, 700),
+  xlab = 'Net Radiation (Daytime)',
+ ylab = '',
+  
+ # main = ' Day Time H by net radiation and land cover',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ Rg_f >0],
+  gap_fill_post_filter_fp_lc$H_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ Rg_f >0],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+ ylim = c(-50, 600),
+  xlim = c(-100, 700),
+  xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+ mtext(side=2,expression(Sensible~Heat~'('~W~m^{-2}~')'),line=2.5)
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Control Area with Wetlands', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+#GPP using nightime respiration model, by daytime NR and landcover
+
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7& 
+                                         gap_fill_post_filter_fp_lc$Rg_f> 0],
+  gap_fill_post_filter_fp_lc$GPP_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 &
+                                        gap_fill_post_filter_fp_lc$Rg_f>0 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 600),
+  xlab = 'GPP by Incoming Radiation (Daytime)',
+  ylab = '',
+  
+ # main = ' Incoming Radiation (Daytime)',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Rg_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 &
+                                         gap_fill_post_filter_fp_lc$ Rg_f>0],
+  gap_fill_post_filter_fp_lc$GPP_U50_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 &
+                                       gap_fill_post_filter_fp_lc$ Rg_f>0],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 600),
+  xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+mtext(side=2,expression(GPP ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),line=2.5)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Wetland Areas', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+
+
+
+
+#GPP using daytime respiration model, by day time NR
+
+```{r}
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.6 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.6 & 
+                                         gap_fill_post_filter_fp_lc$daytime == 1],
+  gap_fill_post_filter_fp_lc$GPP_DT_U50[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.6 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.6 &
+                                        gap_fill_post_filter_fp_lc$daytime == 1 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 600),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = ' Day Time GPP by net radiation and land cover',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Correct_NR[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.6 &
+                                         gap_fill_post_filter_fp_lc$ daytime == 1],
+  gap_fill_post_filter_fp_lc$GPP_DT_U50[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.6 &
+                                       gap_fill_post_filter_fp_lc$ daytime == 1],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 600),
+  xlab = 'Net Radiation',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'bottomright',
+  legend = c('Wetland Areas', ' Treatment LC'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+#ANCOVA of respiration by air temperature with traditional night time model respiration data
+```{r}
+#all year
+Respiration_night_by_fp_LC_all_year<- lmer(Reco_U50 ~ Tair_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f> -500 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude",])
+
+summary(Respiration_night_by_fp_LC_all_year)
+Anova(Respiration_night_by_fp_LC_all_year)
+#shapiro.test(resid(NEE_by_fp_LC_all_year))
+
+
+#growing season
+Respiration_night_LC_growing_season <- lmer(Reco_U50 ~ Tair_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f> -500 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05),])
+
+summary(Respiration_night_LC_growing_season)
+Anova(Respiration_night_LC_growing_season)
+#shapiro.test(resid(Respiration_night_LC_growing_season))
+
+
+#dry season
+Respiration_night_LC_dry_season <- lmer(Reco_U50 ~ Tair_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f> -500 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg < 0.05),])
+
+summary(Respiration_night_LC_dry_season)
+Anova(Respiration_night_LC_dry_season)
+#shapiro.test(resid(Respiration_night_LC_dry_season))
+```
+
+#respiration using the night time model air T and land cover
+```{r}
+plot(
+  gap_fill_post_filter_fp_lc$Tair_f [gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 ],
+  gap_fill_post_filter_fp_lc$Reco_U50[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 40),
+  xlab = 'Air Temperature (C)',
+  ylab = '',
+  
+ # main = ' Respiration (night model) by net radiation and land cover',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Tair_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7],
+  gap_fill_post_filter_fp_lc$Reco_U50[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 40),
+  xlab = '',
+  ylab = '',
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+mtext(side=2,expression(Respiration ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),line=2.5)
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Wetland Areas', ' Treatment Grassland'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+```
+#ANCOVA of respiration on DT model Reco_DT_U50 and by air t
+
+
+```{r}
+#all year
+Respiration_dt_keenan_by_fp_LC_all_year<- lmer(Reco_DT_U50 ~ Tair_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f> -500 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude",])
+
+summary(Respiration_dt_keenan_by_fp_LC_all_year)
+Anova(Respiration_dt_keenan_by_fp_LC_all_year)
+#shapiro.test(resid(NEE_by_fp_LC_all_year))
+
+
+#growing season
+Respiration_dt_keenan_LC_growing_season <- lmer(Reco_DT_U50 ~ Tair_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>-500 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg >= 0.05),])
+
+summary(Respiration_dt_keenan_LC_growing_season)
+Anova(Respiration_dt_keenan_LC_growing_season)
+#shapiro.test(resid(Respiration_dt_keenan_LC_growing_season))
+
+
+#dry season
+Respiration_dt_keenan_LC_dry_season <- lmer(Reco_DT_U50 ~ Tair_f
+                     + day_and_night_fp_filter +(1|day_and_night_fp_filter),
+                  data = gap_fill_post_filter_fp_lc[gap_fill_post_filter_fp_lc$Rg_f>-500 &
+                                 gap_fill_post_filter_fp_lc$day_and_night_fp_filter!="exclude"&
+                                 (gap_fill_post_filter_fp_lc$VWC_Avg < 0.05),])
+
+summary(Respiration_dt_keenan_LC_dry_season)
+Anova(Respiration_dt_keenan_LC_dry_season)
+#shapiro.test(resid(Respiration_dt_keenan_LC_dry_season))
+```
+
+
+#Respiration using daytime respiration model by daytime NR and land cover
+```{r}
+
+plot(
+  gap_fill_post_filter_fp_lc$Tair_f[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7 
+                                      ],
+  gap_fill_post_filter_fp_lc$Reco_DT_U50[gap_fill_post_filter_fp_lc$fpt_weight_wetland1 >= 0.7 
+                                      |
+                                         gap_fill_post_filter_fp_lc$fpt_weight_wetland2 >= 0.7  ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 50),
+  xlab = 'Air temperature',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = ' Day Time Respiration (Daytime model) by net radiation and land cover',
+  
+  cex = 0.6,
+  col = "blue"
+)
+
+par(new = TRUE)
+
+
+plot(
+  gap_fill_post_filter_fp_lc$Tair_f[gap_fill_post_filter_fp_lc$fpt_weight_treatment >= 0.7 
+                                         ],
+  gap_fill_post_filter_fp_lc$Reco_DT_U50[gap_fill_post_filter_fp_lc$fpt_weight_treatment >=0.7 ],
+  # xaxt= 'n',
+  # yaxt= 'n',
+  abline(h = 0, col = "darkgrey"),
+  ylim = c(0, 20),
+  xlim = c(0, 50),
+  xlab = 'Air Temperature',
+  ylab = expression(FC ~ '(' ~ mu ~ mol ~ m ^ {
+    -2
+  } ~ s ^ {
+    -1
+  } ~ ')'),
+  
+  main = '',
+  
+  cex = 0.6,
+  col = "red"
+)
+
+#creating the legend
+legend(
+  x = 'topright',
+  legend = c('Wetland Areas', ' Treatment LC'),
+  pch = 1,
+  col = c('blue', 'red')
+)
+
+```
+
+#creating albedo and plotting it, with the blue line representing when compost went down
+#"%m/%d/%Y %H:%M"
+```{r}
+gap_fill_post_filter_fp_lc$albedo= (gap_fill_post_filter_fp_lc$PAR_out_mV_Avg/ gap_fill_post_filter_fp_lc$PAR_in_mV_Avg)
+
+plot(gap_fill_post_filter_fp_lc$TIMESTAMP[gap_fill_post_filter_fp_lc$albedo>0 & gap_fill_post_filter_fp_lc$albedo < 0.4  ], gap_fill_post_filter_fp_lc$albedo[gap_fill_post_filter_fp_lc$albedo>0 & gap_fill_post_filter_fp_lc$albedo < 0.4 ],
+    
+
+     main = 'Figure 10',
+     xlab='Time  ',
+     ylab= 'Albedo',
+    
+     col = 'green',
+     cex = 0.6,
+     
+    
+
+abline(v= as.POSIXct("2020-10-16"), col="black", lty = 5, lwd =2)
+)
+
+legend(
+  x = 'topleft',
+  legend = c('Compost Application Date'),
+  lty = 5,
+  col = c('black')
+)
+
+```
+
+
+```{r}
+colnames(gap_fill_post_filter_fp_lc)
+```
+
+

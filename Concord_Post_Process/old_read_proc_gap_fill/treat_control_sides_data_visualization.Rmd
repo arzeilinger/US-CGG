@@ -1,0 +1,2005 @@
+---
+title: "Analyzing treatment data gapfilled  with readyproc and control side data gap filled primarily with chamber measurements and a little ready proc (161 N/As)"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+require(openair)
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+library(stringr)
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+library(dplyr)
+```
+
+#Defining the data I/O directory
+#2021-09-13_master_eddy_met_concord_postfiltering
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+treat_gap_fill.path<-paste0(root.path,"17_Control_treat_full_GF\\") ## this is where the gapfilled data lives
+
+
+control_gap_fill.path <- paste0(root.path,"17_Control_treat_full_GF\\") ## this is where the control gap filled data lives
+
+
+
+control_and_treat_gap_fill.path<-paste0(root.path,"17_Control_treat_full_GF\\") #where the combined treatment and control gapfilled file lives. 
+
+
+post_filter.path<-paste0(root.path,"17_Control_treat_full_GF\\") #where the postfiltered VWC dataamong everythin for both live. 
+
+
+
+
+out.path<-paste0(root.path, "10_figures_etc\\")
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+postfilter.file_gap_fill_treat<-paste0("Treatment-2020-2021_growing_season.csv")
+
+
+
+postfilter.file_gap_fill_control <- paste("Control-2020-2021_growing_season.csv")
+
+
+postfilter.file_gap_fill_control_and_treat <- paste("Treat_and _Control-2020-2021_growing_season.csv")
+
+postfilter.file_post_filter <-paste("2021-09-13_master_eddy_met_concord_postfiltering.csv")
+ 
+```
+
+
+# Read in gap filled fulloutput files
+# parse variable names and define N/As
+
+```{r}
+## read in full output file of treatment gap filled data
+treat_gap_filled <-
+  read.csv(
+    paste0(treat_gap_fill.path, postfilter.file_gap_fill_treat, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(treat_gap_filled) <-
+  colnames(read.csv(
+    paste(treat_gap_fill.path, postfilter.file_gap_fill_treat, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(treat_gap_filled)
+
+tail(treat_gap_filled)
+
+```
+
+
+```{r}
+
+## read in full output file of control gap filled data
+control_gap_filled <-
+  read.csv(
+    paste0(control_gap_fill.path, postfilter.file_gap_fill_control, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(control_gap_filled) <-
+  colnames(read.csv(
+    paste(control_gap_fill.path, postfilter.file_gap_fill_control, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(control_gap_filled)
+
+tail(control_gap_filled)
+
+```
+
+
+
+```{r}
+## read in full output file of treatment and control gap filled data
+treat_and_cont_gap_filled <-
+  read.csv(
+    paste0(control_and_treat_gap_fill.path, postfilter.file_gap_fill_control_and_treat, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(treat_and_cont_gap_filled) <-
+  colnames(read.csv(
+    paste(control_and_treat_gap_fill.path, postfilter.file_gap_fill_control_and_treat, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(treat_and_cont_gap_filled)
+
+tail(treat_and_cont_gap_filled)
+
+colnames(treat_and_cont_gap_filled)
+
+#not sure why did this below... may not have to do it
+names(treat_and_cont_gap_filled)[names(treat_and_cont_gap_filled) == "ï..TIMESTAMP"] <- "TIMESTAMP"
+
+colnames(treat_and_cont_gap_filled)
+
+```
+#read in post filter file for getting VWc data
+```{r}
+## read in full output file of treatment and control gap filled data
+postfilter <-
+  read.csv(
+    paste0(post_filter.path, postfilter.file_post_filter, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(postfilter) <-
+  colnames(read.csv(
+    paste(post_filter.path, postfilter.file_post_filter, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(postfilter)
+
+tail(postfilter)
+
+colnames(postfilter)
+
+
+
+colnames(postfilter)
+```
+
+#adding back timestamps to files
+```{r}
+
+
+treat_gap_filled$TIMESTAMP <- strptime(paste(treat_gap_filled$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+head(treat_gap_filled$TIMESTAMP)
+
+head(treat_gap_filled)
+
+#######################################################
+
+control_gap_filled$TIMESTAMP <- strptime(paste(control_gap_filled$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+head(control_gap_filled$TIMESTAMP)
+
+head(control_gap_filled)
+
+
+
+########################################################
+
+treat_and_cont_gap_filled$TIMESTAMP <- strptime(paste(treat_and_cont_gap_filled$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+head(treat_and_cont_gap_filled$TIMESTAMP)
+
+head(treat_and_cont_gap_filled)
+
+
+
+
+#########################################################
+postfilter$TIMESTAMP <- strptime(paste(postfilter$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+head(postfilter$TIMESTAMP)
+
+head(postfilter)
+```
+
+
+
+
+
+#addding time.id gap filled
+```{r}
+treat_gap_filled$time.id <- treat_gap_filled$TIMESTAMP$year + 1900 +
+  (treat_gap_filled$TIMESTAMP$yday) / 366 +
+  (treat_gap_filled$TIMESTAMP$hour) / 366 / 24 +
+  (treat_gap_filled$TIMESTAMP$min) / 366 / 24 / 60
+
+treat_gap_filled$time.id[1:50]
+plot(treat_gap_filled$TIMESTAMP, treat_gap_filled$time.id)
+which(duplicated(treat_gap_filled$time.id))
+
+###############################
+control_gap_filled$time.id <- control_gap_filled$TIMESTAMP$year + 1900 +
+  (control_gap_filled$TIMESTAMP$yday) / 366 +
+  (control_gap_filled$TIMESTAMP$hour) / 366 / 24 +
+  (control_gap_filled$TIMESTAMP$min) / 366 / 24 / 60
+
+control_gap_filled$time.id[1:50]
+plot(control_gap_filled$TIMESTAMP, control_gap_filled$time.id)
+which(duplicated(control_gap_filled$time.id))
+
+##################################
+treat_and_cont_gap_filled$time.id <- treat_and_cont_gap_filled$TIMESTAMP$year + 1900 +
+  (treat_and_cont_gap_filled$TIMESTAMP$yday) / 366 +
+  (treat_and_cont_gap_filled$TIMESTAMP$hour) / 366 / 24 +
+  (treat_and_cont_gap_filled$TIMESTAMP$min) / 366 / 24 / 60
+
+treat_and_cont_gap_filled$time.id[1:50]
+plot(treat_and_cont_gap_filled$TIMESTAMP, treat_and_cont_gap_filled$time.id)
+
+
+#####################################
+postfilter$time.id <- postfilter$TIMESTAMP$year + 1900 +
+  (postfilter$TIMESTAMP$yday) / 366 +
+  (postfilter$TIMESTAMP$hour) / 366 / 24 +
+  (postfilter$TIMESTAMP$min) / 366 / 24 / 60
+
+postfilter$time.id[1:50]
+plot(postfilter$TIMESTAMP, postfilter$time.id)
+
+
+
+```
+
+
+
+
+
+#Creating DOY
+```{r}
+treat_gap_filled$DOY <- treat_gap_filled$TIMESTAMP$year + 1900 +
+  (treat_gap_filled$TIMESTAMP$yday) / 366
+
+head(treat_gap_filled$DOY, 50)
+
+###############################
+control_gap_filled$DOY <- control_gap_filled$TIMESTAMP$year + 1900 +
+  (control_gap_filled$TIMESTAMP$yday) / 366
+
+head(control_gap_filled$DOY, 50)
+
+#########################################
+treat_and_cont_gap_filled$DOY <- treat_and_cont_gap_filled$TIMESTAMP$year + 1900 +
+  (treat_and_cont_gap_filled$TIMESTAMP$yday) / 366
+
+head(treat_and_cont_gap_filled$DOY, 50)
+
+##############################################
+postfilter$DOY <- postfilter$TIMESTAMP$year + 1900 +
+  (postfilter$TIMESTAMP$yday) / 366
+
+head(postfilter$DOY, 50)
+
+
+```
+
+
+
+
+
+#creating neg GPP to add respiration and GPP to test if correct
+```{r}
+
+treat_gap_filled$Gpp_neg <- (treat_gap_filled$GPP_U50_f * -1)
+
+plot(treat_gap_filled$DOY,
+     treat_gap_filled$Gpp_neg)
+
+treat_gap_filled$NEE_test <- (treat_gap_filled$Gpp_neg + treat_gap_filled$Reco_U50)
+
+plot(treat_gap_filled$DOY,
+     treat_gap_filled$NEE_test)
+
+
+#############################################################
+
+treat_and_cont_gap_filled$Gpp_neg <- (treat_and_cont_gap_filled$GPP_U50_f * -1)
+
+plot(treat_and_cont_gap_filled$DOY,
+     treat_and_cont_gap_filled$Gpp_neg)
+
+treat_and_cont_gap_filled$NEE_test <- (treat_and_cont_gap_filled$Gpp_neg + treat_and_cont_gap_filled$Reco_U50)
+
+plot(treat_and_cont_gap_filled$DOY,
+     treat_and_cont_gap_filled$NEE_test)
+################################################################
+control_gap_filled$Gpp_neg <- (control_gap_filled$GPP_U50_f * -1)
+
+plot(control_gap_filled$DOY,
+     control_gap_filled$Gpp_neg)
+
+control_gap_filled$NEE_test <- (control_gap_filled$Gpp_neg + control_gap_filled$Reco_U50)
+
+plot(control_gap_filled$DOY,
+     control_gap_filled$NEE_test)
+
+
+
+```
+
+
+# Making all night time GPP values zero
+## HC: it's ok to have some positive hourly gpp, to conserve sum(nee) = sum(gpp+reco)
+
+```{r}
+
+#making all GPP values that we measure at night Zero
+
+#####################################
+#treat_gap_filled$Gpp_neg[(treat_gap_filled$PotRad_U50 == 0)] <- 0
+
+################################
+#control_gap_filled$Gpp_neg[(control_gap_filled$PotRad_U50 == 0)] <- 0
+
+
+##########################################
+#treat_and_cont_gap_filled$Gpp_neg[(treat_and_cont_gap_filled$PotRad_U50 == 0)] <- 0
+
+
+
+
+```
+
+#Creating a new data column for respiration 
+#combination of Day Reco_U50 and night NEE_U50_f
+#Our night time respiration data will be directly measured, while our daytime respiration data will be modeled. 
+## HC: it's ok to have some negative hourly respiration, to conserve sum(nee) = sum(gpp+reco)
+
+```{r}
+
+############################################################
+#Treatment
+# creating a new column called respiration
+treat_gap_filled$respiration <- (treat_gap_filled$Reco_U50 * 1)
+
+# Assigning all nighttime respiration values from original gap-filled nee
+treat_gap_filled$respiration[(treat_gap_filled$PotRad_U50 == 0)] <-
+  treat_gap_filled$NEE_U50_f[(treat_gap_filled$PotRad_U50 == 0)]
+
+#Now turn any respiration values less than zero to NA's
+# treat_gap_filled$respiration[(treat_gap_filled$respiration <= 0)] <-
+#   NA
+
+#blank
+treat_gap_filled$blank = (treat_gap_filled$Reco_U50 *
+                                      0)
+
+treat_gap_filled$blank[(treat_gap_filled$blank == 0)] <-
+  NA
+
+plot(treat_gap_filled$respiration)
+
+plot(treat_gap_filled$Reco_U50)
+
+################################################################
+#control
+control_gap_filled$respiration <- (control_gap_filled$Reco_U50 * 1)
+
+# Assigning all nighttime respiration values from original gap-filled nee
+control_gap_filled$respiration[(control_gap_filled$PotRad_U50 == 0)] <-
+  control_gap_filled$NEE_U50_f[(control_gap_filled$PotRad_U50 == 0)]
+
+#Now turn any respiration values less than zero to NA's
+# control_gap_filled$respiration[(control_gap_filled$respiration <= 0)] <-
+#   NA
+
+#blank
+control_gap_filled$blank = (control_gap_filled$Reco_U50 *
+                                      0)
+
+control_gap_filled$blank[(control_gap_filled$blank == 0)] <-
+  NA
+
+plot(control_gap_filled$respiration)
+
+plot(control_gap_filled$respiration[control_gap_filled$PotRad_U50 == 0])
+
+plot(control_gap_filled$NEE_U50_f[control_gap_filled$PotRad_U50 == 0])
+
+plot(control_gap_filled$Reco_U50)
+#######################################
+#control and treatment
+treat_and_cont_gap_filled$respiration <- (treat_and_cont_gap_filled$Reco_U50 * 1)
+
+# Assigning all nighttime respiration values from original gap-filled nee
+treat_and_cont_gap_filled$respiration[(treat_and_cont_gap_filled$PotRad_U50 == 0)] <-
+  treat_and_cont_gap_filled$NEE_U50_f[(treat_and_cont_gap_filled$PotRad_U50 == 0)]
+
+#Now turn any respiration values less than zero to NA's
+# treat_and_cont_gap_filled$respiration[(treat_and_cont_gap_filled$respiration <= 0)] <-
+#   NA
+
+#blank
+treat_and_cont_gap_filled$blank = (treat_and_cont_gap_filled$Reco_U50 *
+                                      0)
+
+treat_and_cont_gap_filled$blank[(treat_and_cont_gap_filled$blank == 0)] <-
+  NA
+
+
+
+```
+
+
+#looking at the control data. original GAM filled remainder with ready proc
+
+```{r}
+
+plot(control_gap_filled$TIMESTAMP, control_gap_filled$NEE_original,
+     ylim = c(-20,40),
+     col ="red")
+
+par(new= TRUE)
+
+plot(control_gap_filled$TIMESTAMP, control_gap_filled$NEE_U50_f, 
+     ylim = c(-20,40),
+     col ="blue")
+
+```
+
+
+
+
+
+#Plotting NEE variables###
+
+####panel 1 half-hourly non-gap filled and half hourly gap filled###
+#panel 2 GPP_neg and Respiration
+#panel 3 cumulative sums of NEE, Respiration and neg GPP
+
+
+#Treatment side
+
+```{r}
+
+treat_gap_filled$NEE_U50_f_1 = (treat_gap_filled$NEE_U50_f * 1)
+
+target.plot.var_nee <- c("NEE_U50_f",
+                         "Gpp_neg",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+  expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(GPP ~ ';' ~ Reco~'(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(Cumulative~sum~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  treat_gap_filled$TIMESTAMP$mday == 1 &
+    treat_gap_filled$TIMESTAMP$hour == 0 &
+    treat_gap_filled$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    treat_gap_filled$TIMESTAMP[month.loc[1]],
+    treat_gap_filled$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_nee.tmp <-
+  data.frame(
+    date = tapply(
+      treat_gap_filled$time.id,
+      treat_gap_filled$DOY,
+      min
+    ),
+    daily_nee = tapply(
+      treat_gap_filled$NEE_U50_f,
+      treat_gap_filled$DOY,
+      na.mean
+    ),
+    daily_gpp = tapply(
+      treat_gap_filled$Gpp_neg,
+      treat_gap_filled$DOY,
+      na.mean
+    ),
+    daily_reco = tapply(
+      treat_gap_filled$Reco_U50,
+      treat_gap_filled$DOY,
+      na.mean
+    )
+  )
+
+## convert NEE, Reco_U50 gpp to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:4) {
+  # convert to daily units
+  daily_nee.tmp[, ll] <-
+    daily_nee.tmp[, ll] * 12 / 1000000 * 1800 * 48
+  daily_nee.tmp[is.na(daily_nee.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_nee.tmp[1:365, ll] <-
+    cumsum(daily_nee.tmp[1:365, ll])
+  daily_nee.tmp[366:nrow(daily_nee.tmp), ll] <-
+    cumsum(daily_nee.tmp[366:nrow(daily_nee.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_nee.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "NEE_treatment_growing_post_compost_concord",
+    treat_gap_filled$TIMESTAMP$year[1] + 1900, "_",
+    treat_gap_filled$TIMESTAMP$yday[1] + 1, "_",
+    treat_gap_filled$TIMESTAMP$year[nrow(treat_gap_filled)] + 1900, "_",
+    treat_gap_filled$TIMESTAMP$yday[nrow(treat_gap_filled)] + 1, "_",
+    "all_NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 2 / 3, 1), new = FALSE)
+plot(
+  treat_gap_filled$time.id[is.na(treat_gap_filled$NEE_original)],
+  treat_gap_filled$NEE_U50_f[is.na(treat_gap_filled$NEE_original)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-10, 10),
+  cex.axis = 0.8
+)
+
+points(
+  treat_gap_filled$time.id[!is.na(treat_gap_filled$NEE_original)],
+  treat_gap_filled$NEE_U50_f[!is.na(treat_gap_filled$NEE_original)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 30,
+  paste0("(a)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+## panel b
+par(fig = c(0, 1, 1 / 3, 2 / 3), new = TRUE)
+plot(
+  treat_gap_filled$time.id,
+  treat_gap_filled$Gpp_neg,
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-10, 10),
+  cex.axis = 0.8
+)
+
+points(
+  treat_gap_filled$time.id,
+  treat_gap_filled$Reco_U50,
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 30,
+  paste0("(b)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+## panel c
+par(fig = c(0, 1, 0, 1 / 3), new = TRUE)
+plot(
+  daily_nee.tmp$date,
+  daily_nee.tmp$daily_nee,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(-375, 375),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp$date,
+      daily_nee.tmp$daily_gpp,
+      lwd = 1.5,
+      col = "forestgreen",
+      lty = 2
+      )
+
+lines(daily_nee.tmp$date,
+      daily_nee.tmp$daily_reco,
+      lwd = 1.5,
+      col = "red",
+      lty = 3
+      )
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = treat_gap_filled$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 1200,
+  paste0("(c)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[3]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+#Control Side NEE
+
+```{r}
+
+control_gap_filled$NEE_U50_f_1 = (control_gap_filled$NEE_U50_f * 1)
+
+target.plot.var_nee <- c("NEE_U50_f",
+                         "Gpp_neg",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+  expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(GPP ~ ';' ~ Reco~'(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(Cumulative~sum~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  control_gap_filled$TIMESTAMP$mday == 1 &
+    control_gap_filled$TIMESTAMP$hour == 0 &
+    control_gap_filled$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    control_gap_filled$TIMESTAMP[month.loc[1]],
+    control_gap_filled$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_nee.tmp <-
+  data.frame(
+    date = tapply(
+      control_gap_filled$time.id,
+      control_gap_filled$DOY,
+      min
+    ),
+    daily_nee = tapply(
+      control_gap_filled$NEE_U50_f,
+      control_gap_filled$DOY,
+      na.mean
+    ),
+    daily_gpp = tapply(
+      control_gap_filled$Gpp_neg,
+      control_gap_filled$DOY,
+      na.mean
+    ),
+    daily_reco = tapply(
+      control_gap_filled$Reco_U50,
+      control_gap_filled$DOY,
+      na.mean
+    )
+  )
+
+## convert NEE, Reco_U50 gpp to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:4) {
+  # convert to daily units
+  daily_nee.tmp[, ll] <-
+    daily_nee.tmp[, ll] * 12 / 1000000 * 1800 * 48
+  daily_nee.tmp[is.na(daily_nee.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_nee.tmp[1:365, ll] <-
+    cumsum(daily_nee.tmp[1:365, ll])
+  daily_nee.tmp[366:nrow(daily_nee.tmp), ll] <-
+    cumsum(daily_nee.tmp[366:nrow(daily_nee.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_nee.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "NEE_control_growing_post_compost_concord",
+    control_gap_filled$TIMESTAMP$year[1] + 1900, "_",
+    control_gap_filled$TIMESTAMP$yday[1] + 1, "_",
+    control_gap_filled$TIMESTAMP$year[nrow(control_gap_filled)] + 1900, "_",
+    control_gap_filled$TIMESTAMP$yday[nrow(control_gap_filled)] + 1, "_",
+    "all_NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 2 / 3, 1), new = FALSE)
+plot(
+  control_gap_filled$time.id[is.na(control_gap_filled$NEE_original)],
+  control_gap_filled$NEE_U50_f[is.na(control_gap_filled$NEE_original)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-10, 10),
+  cex.axis = 0.8
+)
+
+points(
+  control_gap_filled$time.id[!is.na(control_gap_filled$NEE_original)],
+  control_gap_filled$NEE_U50_f[!is.na(control_gap_filled$NEE_original)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 30,
+  paste0("(a)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+## panel b
+par(fig = c(0, 1, 1 / 3, 2 / 3), new = TRUE)
+plot(
+  control_gap_filled$time.id,
+  control_gap_filled$Gpp_neg,
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-10, 10),
+  cex.axis = 0.8
+)
+
+points(
+  control_gap_filled$time.id,
+  control_gap_filled$Reco_U50,
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 30,
+  paste0("(b)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+## panel c
+par(fig = c(0, 1, 0, 1 / 3), new = TRUE)
+plot(
+  daily_nee.tmp$date,
+  daily_nee.tmp$daily_nee,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(-375, 375),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp$date,
+      daily_nee.tmp$daily_gpp,
+      lwd = 1.5,
+      col = "forestgreen",
+      lty = 2
+      )
+
+lines(daily_nee.tmp$date,
+      daily_nee.tmp$daily_reco,
+      lwd = 1.5,
+      col = "red",
+      lty = 3
+      )
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = control_gap_filled$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 1200,
+  paste0("(c)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[3]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+
+```
+#Comparing VWC
+
+
+
+```{r}
+
+plot(postfilter$TIMESTAMP[postfilter$TIMESTAMP > as.POSIXct("2021-02-02")], postfilter$VWC_2_Avg_Control[postfilter$TIMESTAMP > as.POSIXct("2021-02-02")])
+
+plot(postfilter$TIMESTAMP[postfilter$TIMESTAMP > as.POSIXct("2021-02-02")], postfilter$VWC_Avg[postfilter$TIMESTAMP > as.POSIXct("2021-02-02")])
+
+
+## Generic time series plot
+target.plot.var<-c(
+                   "VWC_Avg",
+                   "VWC_2_Avg_Control"
+                   )
+target.plot.var.title<-c(
+                         expression(Soil~water~content~treatment~side~'('~m^{3}~m^{-3}~')'),
+                         expression(Soil~water~content~control~side~'('~m^{3}~m^{-3}~')'))  
+
+for(k1 in 1:length(target.plot.var)){
+  
+  ## locate the start of each month
+  month.loc<-which(postfilter$TIMESTAMP$mday==1&
+                     postfilter$TIMESTAMP$hour==0&
+                     postfilter$TIMESTAMP$min==0)
+  month.ticks <- seq(postfilter$TIMESTAMP[month.loc[1]],
+                     postfilter$TIMESTAMP[month.loc[length(month.loc)]],by="months")
+  
+  png(paste0(out.path,
+             "Concord_",
+             postfilter$TIMESTAMP$year[1]+1900,"_",
+             postfilter$TIMESTAMP$yday[1]+1,"_",
+             postfilter$TIMESTAMP$year[nrow(postfilter)]+1900,"_",
+             postfilter$TIMESTAMP$yday[nrow(postfilter)]+1,"_",
+             target.plot.var[k1],"_",
+             Sys.Date(),".png"),
+      width=6,
+      height=4,
+      units="in",
+      res=300,
+      pointsize = 11,
+      bg = "white")
+  
+  par(oma=c(0.5,0.5,0.5,0.5),mar=c(4,4.5,0,0))
+  plot(postfilter$TIMESTAMP,
+       postfilter[,target.plot.var[k1]],
+       xlab="TIMESTAMP",
+       ylab=target.plot.var.title[k1],
+       cex=0.5,col="grey",bg="lightgrey",
+       las=1,pch=21,
+       xaxs="i",yaxs="i"
+  )
+  
+  abline(h=0,col="darkgrey")
+  
+  ## daily averge line
+  daily.tmp<-data.frame(date=tapply(postfilter$time.id,postfilter$doy.id,min),
+                        daily=tapply(postfilter[,target.plot.var[k1]],postfilter$doy.id,na.mean))
+  
+  lines(postfilter$TIMESTAMP[which(postfilter$time.id %in% daily.tmp$date)],
+        daily.tmp$daily,
+        lwd=1.5,col="black")
+  
+  ## loess fit line
+  loess.tmp<-loess(postfilter[,target.plot.var[k1]]~c(1:nrow(postfilter)),span=0.1)
+  
+  ## avoid plotting long gaps
+  long.gap<-which(loess.tmp$x[-1]-loess.tmp$x[-length(loess.tmp$x)]>48*3)
+  
+  if(length(long.gap)>0){ ## skip if any long gaps
+    if(long.gap[1]>1) long.gap<-c(1,long.gap)
+    if(long.gap[length(long.gap)]<length(loess.tmp$x)) long.gap<-c(long.gap,length(loess.tmp$x))
+    
+    for(k1 in 1:(length(long.gap)-1)){
+      lines(postfilter$TIMESTAMP[round(loess.tmp$x[c((long.gap[k1]+1):(long.gap[k1+1]-1))])],
+            loess.tmp$fitted[c((long.gap[k1]+1):(long.gap[k1+1]-1))],
+            lwd=1.5,col="red")
+    }  
+  }else{
+      lines(postfilter$TIMESTAMP[round(loess.tmp$x)],
+            loess.tmp$fitted,
+            lwd=1.5,col="red")
+  }
+
+  axis(1, at = month.ticks, labels = FALSE, tcl = -0.3)
+  dev.off()
+}
+
+```
+
+
+
+```{r}
+colnames(treat_gap_filled)
+```
+
+
+#analyzing Latent heat on the treatment side
+#panel A gapfilled and non-gapfilled LE fluxes
+#panel B cumulative sum of LE
+```{r}
+
+
+
+target.plot.var_LE <- c("LE_f",
+                         "blank")
+
+target.plot.var_LE.title <- c(
+  expression(LE ~ '(' ~ W ~ m ^ {-2 } ~  ')'),
+  expression(Cumulative~sum~LE~ '(' ~ W ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  treat_gap_filled$TIMESTAMP$mday == 1 &
+    treat_gap_filled$TIMESTAMP$hour == 0 &
+    treat_gap_filled$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    treat_gap_filled$TIMESTAMP[month.loc[1]],
+    treat_gap_filled$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_LE.tmp <-
+  data.frame(
+    date = tapply(
+      treat_gap_filled$time.id,
+      treat_gap_filled$DOY,
+      min
+    ),
+    daily_LE = tapply(
+      treat_gap_filled$LE_f,
+      treat_gap_filled$DOY,
+      na.mean
+    )
+  )
+
+## convert NEE, Reco_U50 gpp to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:2) {
+  # convert to daily units
+  daily_LE.tmp[, ll] <-
+    daily_LE.tmp[, ll]*1
+  daily_LE.tmp[is.na(daily_LE.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_LE.tmp[1:365, ll] <-
+    cumsum(daily_LE.tmp[1:365, ll])
+  daily_LE.tmp[366:nrow(daily_LE.tmp), ll] <-
+    cumsum(daily_LE.tmp[366:nrow(daily_LE.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_LE.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Treatment_LE_concord_growing",
+    treat_gap_filled$TIMESTAMP$year[1] + 1900, "_",
+    treat_gap_filled$TIMESTAMP$yday[1] + 1, "_",
+    treat_gap_filled$TIMESTAMP$year[nrow(treat_gap_filled)] + 1900, "_",
+    treat_gap_filled$TIMESTAMP$yday[nrow(treat_gap_filled)] + 1, "_",
+    "all_LE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 1 / 2, 1), new = FALSE)
+plot(
+  treat_gap_filled$time.id[is.na(treat_gap_filled$LE_orig)],
+  treat_gap_filled$LE_f[is.na(treat_gap_filled$LE_orig)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-50, 300),
+  cex.axis = 0.8
+)
+
+points(
+  treat_gap_filled$time.id[!is.na(treat_gap_filled$LE_orig)],
+  treat_gap_filled$LE_f[!is.na(treat_gap_filled$LE_orig)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_LE.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 30,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+
+
+## panel b
+par(fig = c(0, 1, 0, 1 / 2), new = TRUE)
+plot(
+  daily_LE.tmp$date,
+  daily_LE.tmp$daily_LE,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(0, 5500),
+  cex.axis = 0.8
+)
+
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_LE.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = treat_gap_filled$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 1200,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+#analyzing Latent heat on the control side side
+#panel A gapfilled and non-gapfilled LE fluxes
+#panel B cumulative sum of LE
+```{r}
+
+
+
+target.plot.var_LE <- c("LE_f",
+                         "blank")
+
+target.plot.var_LE.title <- c(
+  expression(LE ~ '(' ~ W ~ m ^ {-2 } ~  ')'),
+  expression(Cumulative~sum~LE~ '(' ~ W ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  control_gap_filled$TIMESTAMP$mday == 1 &
+    control_gap_filled$TIMESTAMP$hour == 0 &
+    control_gap_filled$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    control_gap_filled$TIMESTAMP[month.loc[1]],
+    control_gap_filled$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_LE.tmp <-
+  data.frame(
+    date = tapply(
+      control_gap_filled$time.id,
+      control_gap_filled$DOY,
+      min
+    ),
+    daily_LE = tapply(
+      control_gap_filled$LE_f,
+      control_gap_filled$DOY,
+      na.mean
+    )
+  )
+
+## convert NEE, Reco_U50 gpp to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:2) {
+  # convert to daily units
+  daily_LE.tmp[, ll] <-
+    daily_LE.tmp[, ll]*1
+  daily_LE.tmp[is.na(daily_LE.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_LE.tmp[1:365, ll] <-
+    cumsum(daily_LE.tmp[1:365, ll])
+  daily_LE.tmp[366:nrow(daily_LE.tmp), ll] <-
+    cumsum(daily_LE.tmp[366:nrow(daily_LE.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_LE.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Control_LE_concord_growing",
+    control_gap_filled$TIMESTAMP$year[1] + 1900, "_",
+    control_gap_filled$TIMESTAMP$yday[1] + 1, "_",
+    control_gap_filled$TIMESTAMP$year[nrow(control_gap_filled)] + 1900, "_",
+    control_gap_filled$TIMESTAMP$yday[nrow(control_gap_filled)] + 1, "_",
+    "all_LE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 1 / 2, 1), new = FALSE)
+plot(
+  control_gap_filled$time.id[is.na(control_gap_filled$LE_orig)],
+  control_gap_filled$LE_f[is.na(control_gap_filled$LE_orig)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-50, 300),
+  cex.axis = 0.8
+)
+
+points(
+  control_gap_filled$time.id[!is.na(control_gap_filled$LE_orig)],
+  control_gap_filled$LE_f[!is.na(control_gap_filled$LE_orig)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_LE.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 30,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+
+
+## panel b
+par(fig = c(0, 1, 0, 1 / 2), new = TRUE)
+plot(
+  daily_LE.tmp$date,
+  daily_LE.tmp$daily_LE,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(0, 5500),
+  cex.axis = 0.8
+)
+
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_LE.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = control_gap_filled$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 1200,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+#sensible heat on treatment side
+```{r}
+target.plot.var_LE <- c("H_f",
+                         "blank")
+
+target.plot.var_LE.title <- c(
+  expression(H ~ '(' ~ W ~ m ^ {-2 } ~  ')'),
+  expression(Cumulative~sum~H~ '(' ~ W ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  treat_gap_filled$TIMESTAMP$mday == 1 &
+    treat_gap_filled$TIMESTAMP$hour == 0 &
+    treat_gap_filled$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    treat_gap_filled$TIMESTAMP[month.loc[1]],
+    treat_gap_filled$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_H.tmp <-
+  data.frame(
+    date = tapply(
+      treat_gap_filled$time.id,
+      treat_gap_filled$DOY,
+      min
+    ),
+    daily_LE = tapply(
+      treat_gap_filled$H_f,
+      treat_gap_filled$DOY,
+      na.mean
+    )
+  )
+
+## convert H ti cumulative sum
+# convert to cumulative carbon
+for(ll in 2:2) {
+  # convert to daily units
+  daily_H.tmp[, ll] <-
+    daily_H.tmp[, ll]*1
+  daily_H.tmp[is.na(daily_H.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_H.tmp[1:365, ll] <-
+    cumsum(daily_H.tmp[1:365, ll])
+  daily_H.tmp[366:nrow(daily_H.tmp), ll] <-
+    cumsum(daily_H.tmp[366:nrow(daily_H.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_H.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Treatment_H_concord_growing",
+    treat_gap_filled$TIMESTAMP$year[1] + 1900, "_",
+    treat_gap_filled$TIMESTAMP$yday[1] + 1, "_",
+    treat_gap_filled$TIMESTAMP$year[nrow(treat_gap_filled)] + 1900, "_",
+    treat_gap_filled$TIMESTAMP$yday[nrow(treat_gap_filled)] + 1, "_",
+    "growing_H_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 1 / 2, 1), new = FALSE)
+plot(
+  treat_gap_filled$time.id[is.na(treat_gap_filled$H_orig)],
+  treat_gap_filled$H_f[is.na(treat_gap_filled$H_orig)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-100, 400),
+  cex.axis = 0.8
+)
+
+points(
+  treat_gap_filled$time.id[!is.na(treat_gap_filled$H_orig)],
+  treat_gap_filled$H_f[!is.na(treat_gap_filled$H_orig)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_H.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 30,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+
+
+## panel b
+par(fig = c(0, 1, 0, 1 / 2), new = TRUE)
+plot(
+  daily_H.tmp$date,
+  daily_H.tmp$daily_LE,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(-100, 5000),
+  cex.axis = 0.8
+)
+
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_H.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = treat_gap_filled$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = treat_gap_filled$time.id[1],
+  y = 1200,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+#control side sensible heat
+
+```{r}
+target.plot.var_LE <- c("H_f",
+                         "blank")
+
+target.plot.var_LE.title <- c(
+  expression(H ~ '(' ~ W ~ m ^ {-2 } ~  ')'),
+  expression(Cumulative~sum~H~ '(' ~ W ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  control_gap_filled$TIMESTAMP$mday == 1 &
+    control_gap_filled$TIMESTAMP$hour == 0 &
+    control_gap_filled$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    control_gap_filled$TIMESTAMP[month.loc[1]],
+    control_gap_filled$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_H.tmp <-
+  data.frame(
+    date = tapply(
+      control_gap_filled$time.id,
+      control_gap_filled$DOY,
+      min
+    ),
+    daily_LE = tapply(
+      control_gap_filled$H_f,
+      control_gap_filled$DOY,
+      na.mean
+    )
+  )
+
+## convert H ti cumulative sum
+# convert to cumulative carbon
+for(ll in 2:2) {
+  # convert to daily units
+  daily_H.tmp[, ll] <-
+    daily_H.tmp[, ll]*1
+  daily_H.tmp[is.na(daily_H.tmp[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_H.tmp[1:365, ll] <-
+    cumsum(daily_H.tmp[1:365, ll])
+  daily_H.tmp[366:nrow(daily_H.tmp), ll] <-
+    cumsum(daily_H.tmp[366:nrow(daily_H.tmp), ll])
+  
+  # set break (missing value) between two years
+  daily_H.tmp[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Control_H_concord_growing",
+    control_gap_filled$TIMESTAMP$year[1] + 1900, "_",
+    control_gap_filled$TIMESTAMP$yday[1] + 1, "_",
+    control_gap_filled$TIMESTAMP$year[nrow(control_gap_filled)] + 1900, "_",
+    control_gap_filled$TIMESTAMP$yday[nrow(control_gap_filled)] + 1, "_",
+    "growing_H_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 1 / 2, 1), new = FALSE)
+plot(
+  control_gap_filled$time.id[is.na(control_gap_filled$H_orig)],
+  control_gap_filled$H_f[is.na(control_gap_filled$H_orig)],
+  xlab = "",
+  ylab = "",
+  cex = 0.5,
+  col = "darkgrey",
+  bg = "lightgrey",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-100, 400),
+  cex.axis = 0.8
+)
+
+points(
+  control_gap_filled$time.id[!is.na(control_gap_filled$H_orig)],
+  control_gap_filled$H_f[!is.na(control_gap_filled$H_orig)],
+  cex = 0.5,
+  col = "black",
+  bg = "black",
+  pch = 21,
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_H.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 30,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+
+
+## panel b
+par(fig = c(0, 1, 0, 1 / 2), new = TRUE)
+plot(
+  daily_H.tmp$date,
+  daily_H.tmp$daily_LE,
+  type = "l",
+  lwd = 1.5,
+  col = "black",
+  xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(-100, 5000),
+  cex.axis = 0.8
+)
+
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_H.tmp$date[366], lwd= 1.5, col = "black")
+
+axis(
+  side = 1,
+  at = control_gap_filled$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = control_gap_filled$time.id[1],
+  y = 1200,
+  paste0(""),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_LE.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.5, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+
+
+#GLMM with ancova looking at effect of treatment on nee. not significant.Also treating treatment as a random effect to account for the lack of independence between measurments from the respective sides. 
+```{r}
+#colnames(treat_and_cont_gap_filled)
+#ANCOVA and Daytime NEE all year Comparison treatment and control area
+NEE_by_treatment_post_compost<- glmer(NEE_U50_f ~  Treatment+Rg_f
+                     + (1|Treatment), 
+                  data = treat_and_cont_gap_filled [treat_and_cont_gap_filled$PotRad_U50>0,], )
+
+summary(NEE_by_treatment_post_compost)
+Anova(NEE_by_treatment_post_compost)
+
+```
+```{r}
+Reco_by_treatment_post_compost<- glmer(Reco_U50 ~  Treatment+Rg_f
+                     + (1|Treatment), 
+                  data = treat_and_cont_gap_filled [treat_and_cont_gap_filled$PotRad_U50>0,], )
+
+summary(Reco_by_treatment_post_compost)
+Anova(Reco_by_treatment_post_compost)
+
+GPP_by_treatment_post_compost<- glmer(Reco_U50 ~  Treatment+Rg_f
+                     + (1|Treatment), 
+                  data = treat_and_cont_gap_filled [treat_and_cont_gap_filled$PotRad_U50>0,], )
+
+summary(Reco_by_treatment_post_compost)
+Anova(Reco_by_treatment_post_compost)
+
+```
+
+`

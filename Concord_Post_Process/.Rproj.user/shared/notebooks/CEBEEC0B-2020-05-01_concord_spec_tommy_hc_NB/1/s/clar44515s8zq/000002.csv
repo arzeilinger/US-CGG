@@ -1,0 +1,6 @@
+"0","## change root.path as needed"
+"0","#root.path<-""C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"""
+"0","root.path<-""D:\\Housen\\Flux\\Data-exploring\\02_Concord\\"""
+"0","eddypro.path<-paste0(root.path,""01_Processed_Data\\Master_Eddy\\"") ## this is where the EddyPro outputs located"
+"0","plot.path<-paste0(root.path,""01_Processed_Data\\spectrum_plot\\"") ## this is where the output plots located"
+"0",""

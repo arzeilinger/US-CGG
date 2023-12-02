@@ -1,0 +1,287 @@
+---
+title: "Energy Balance Closure 2019-11-01 Data"
+output: html_notebook
+---
+
+
+
+ 
+
+```{r}
+library(tidyverse)
+source("calc_footprint_FFP.R")
+library(ggplot2)
+library(modelr)
+options(na.action = na.warn)
+```
+
+
+# Lists #
+```{r}
+rm(list=ls())
+```
+
+
+# Defining the data I/O directory #
+**"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\2019-09-25_All_data_To_Date\eddypro_20190925_Concord_alltodate.csv**
+```{r}
+path1<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in1<-paste(path1,"01_Proccessed_Data",sep="")
+path.out1<-paste(path1,"03_combined_data",sep="")
+ver<-"2019-11-01_one_wk_prior" 
+file.name1<-paste("eddypro_Concord20191101_1wk_prior_full_output_2019-11-04T175830_exp",sep="")
+```
+
+# read in eddypro full output file, parse variable names #
+```{r}
+data20191101<-read.csv(paste(path.in1,"\\",ver,"\\",file.name1,".csv",sep=""),
+                  header=F,
+                  skip=3,
+                  na.strings=c(-9999),
+                  stringsAsFactors = F)
+colnames(data20191101)<-colnames(
+  read.csv(paste(path.in1,"\\",ver,"\\",file.name1,".csv",sep=""),
+           header=T,
+           skip=1))
+
+data20191101
+```
+
+# Parsing the time stamp converting it into a POSIXlt vector#
+
+**interpreting date and time into new timestamp column**
+
+**Then taking that time stamp column and turning each time into a unique number (time.id) so I can join based on that. As it can be really tricky to join/merge based on time stamps alone**
+
+**Or I could make sure both time stamps are characters and match them that way**
+
+**Finally ploting time.id to make sure my times translate linearily**
+
+```{r}
+data20191101$TIMESTAMP<-strptime(paste(data20191101$date,data20191101$time,sep=" "),
+                            format="%m/%d/%Y %H:%M", tz = "GMT")
+
+data20191101$time.id <-data20191101$TIMESTAMP$year+1900+(data20191101$TIMESTAMP$yday)/366+(data20191101$TIMESTAMP$hour)/366/24+ (data20191101$TIMESTAMP$min)/366/24/60
+
+data20191101$time.id[1:50]
+plot(data20191101$time.id)
+which(duplicated(data20191101$time.id))
+```
+
+# Defining the data I/O directory for met_data #
+**"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\met_data\CR6Series_Concord_Met_20191101.csv"**
+```{r}
+path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in<-paste(path,"01_Proccessed_Data",sep="")
+path.out3<-paste(path,"03_combined_data",sep="")
+ver<-"met_data" 
+file.name<-paste("CR6Series_Concord_Met_20191101",sep="")
+```
+
+
+
+
+#read in Met_Data file, parse variable names and define N/As#
+
+
+```{r}
+met_data20191101<-read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+                  header=F,
+                  skip=4,
+                  na.strings=c("NAN"),
+                  stringsAsFactors = F)
+colnames(met_data20191101)<-colnames(
+  read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+           header=T,
+           skip= 1))
+
+met_data20191101
+
+```
+
+#Taking the met_data and turning the time stamp into posixt format#
+
+```{r}
+met_data20191101$TIMESTAMP<-strptime(met_data20191101$TIMESTAMP,
+                            format="%Y-%m-%d %H:%M:%S", tz = "GMT")
+
+met_data20191101$TIMESTAMP[1:50]
+```
+
+#Making sure timestamp columns line up#
+
+```{r}
+
+met_data20191101$TIMESTAMP[1:10]
+
+data20191101$TIMESTAMP[1:10]
+```
+
+
+```{r}
+met_data20191101
+```
+
+#creating a time id for the MET Data so I I can join the MET and Eddy Pro Data#
+
+```{r}
+
+met_data20191101$time.id <-met_data20191101$TIMESTAMP$year+1900+(met_data20191101$TIMESTAMP$yday)/366+(met_data20191101$TIMESTAMP$hour)/366/24 + (met_data20191101$TIMESTAMP$min)/366/24/60 
+
+met_data20191101$time.id[1:50]
+plot(met_data20191101$time.id)
+which(duplicated(met_data20191101$time.id))
+
+met_data20191101
+```
+
+
+#Joining the Met_Data and Eddy Pro Data Sets#
+
+**with merge**
+
+**need to add back timestamp**
+```{r}
+
+Combo20191101<- merge(met_data20191101[,-which(colnames(met_data20191101)=="TIMESTAMP")], data20191101[,-which(colnames(data20191101)=="TIMESTAMP")], by = "time.id")
+
+Combo20191101
+
+colnames(Combo20191101)
+
+```
+
+
+**with left join**
+```{r}
+Combo20191101<- met_data20191101 %>% 
+  left_join(data20191101, by = time.id)
+```
+
+
+
+
+#Basic Summary of Eddy Pro Data
+
+```{r}
+summary(data20191101)
+```
+
+
+# filter ustar based on qc_Tau. #
+**Filtering out all qc_Tau = 2**
+```{r}
+data20191101$u.[!is.na(data20191101$qc_Tau)&data20191101$qc_Tau==2]<-NA
+```
+
+
+#Plotting Co2 flux by timstamp on x-axis. 
+```{r}
+
+plot(data20191101$TIMESTAMP ,data20191101$co2_flux)
+
+```
+
+# filtering latent heat, sensible heat and h20flux by quality controls#
+
+```{r}
+data20191101$LE.[!is.na(data20191101$qc_LE)&data20191101$qc_LE==2]<-NA
+
+data20191101$qqc_h2o_flux[!is.na(data20191101$qc_h2o_flux)&data20191101$qc_h2o_flux==2]<-NA
+
+data20191101$H[!is.na(data20191101$qc_H)&data20191101$qc_H==2]<-NA
+
+```
+
+# latent heat, sensible heat, h20_flux, and relative humidity by day for whole period #
+
+
+```{r}
+
+plot(data20191101$TIMESTAMP ,data20191101$LE)
+hist(data20191101$LE)
+
+plot(data20191101$TIMESTAMP ,data20191101$h2o_flux)
+
+plot(data20191101$TIMESTAMP ,data20191101$H)
+
+plot(data20191101$TIMESTAMP ,data20191101$RH)
+
+
+
+
+
+```
+
+
+#h20 flux and co2 flux
+```{r}
+
+plot(data20191101$TIMESTAMP ,data20191101$co2_flux, ylim = c(-6,6))
+points(data20191101$TIMESTAMP ,data20191101$h2o_flux,col="red",pch=2)
+
+```
+
+
+#latent heat and Sensible heat plotted over eachother
+
+```{r}
+plot(data20191101$TIMESTAMP ,data20191101$LE)
+points(data20191101$TIMESTAMP ,data20191101$H,col="red",pch=2)
+```
+
+#air temperatue by sensible heat an U* by co2 flux
+```{r}
+plot(data20191101$air_temperature-273.15,data20191101$H,xlim=c(10,40),ylim=c(-100,500))
+
+
+
+plot(data20191101$u. ,data20191101$co2_flux, ylim = c(0, 10), xlim = c(0,1))
+```
+
+
+#Adding best fit line to air temperature by sensible heat
+```{r}
+ggplot(data = data20191101) + 
+  geom_point(mapping = aes(x = air_temperature-273.15, y = H)) +
+  geom_smooth(mapping = aes(x = air_temperature-273.15, y = H))
+
+ggplot(data = data20191101) + 
+  geom_point(mapping = aes(x = air_temperature-273.15, y = H)) +
+    geom_smooth(mapping = aes(x = air_temperature-273.15, y = H, method= 'lm', se = FALSE))
+```
+
+#best fit line to U* bt co2 flux
+```{r}
+ggplot(data = data20191101) + 
+  geom_point(mapping = aes(x = u., y = co2_flux)) +
+  geom_smooth(mapping = aes(x = u., y = co2_flux))
+
+
+```
+
+
+**Energy Balance of non-gapfilled data. Slope of line is energy balance closure. Ideally it should be 1:1 Net radiation - soil heat flux= to Latent heat +sensible heat. **
+
+```{r}
+
+
+Combo20191101$E_ng <- NR_Wm2_Avg- SHF_1_Wm2_Avg
+
+
+Combo20191101$E_lh <- LE +H 
+
+scatter.smooth(Combo20191101$E_ng, Combo20191101$E_lh)
+lm(Combo20191101$E_lh ~ Combo20191101$E_ng)
+summary(lm(Combo20191101$E_lh ~ Combo20191101$E_ng))$r.squared
+```
+
+
+```{r}
+library(openair)
+library(tidyverse)
+
+hist(data20191101$wind_dir, xlim = c(0,370), breaks = 36, main = "Wind Direction")
+
+
+```

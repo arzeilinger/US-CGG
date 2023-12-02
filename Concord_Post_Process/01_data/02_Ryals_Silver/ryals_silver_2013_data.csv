@@ -1,0 +1,19 @@
+Site,Water year,Treatment,Annual NPP,Annual total soil respiration,Net C storage 30% Rh,Net C storage 50% Rh,Net C storage 60% Rh
+Valley 1,1,control,271,1190,-42.8,-252,-356.6
+Valley 1,1,amended,422,1442,68.1,-187.1,-314.8
+Valley 2,1,control,234,1242,-104.5,-330.5,-443.8
+Valley 2,1,amended,428,1481,51.7,-218.9,-354.3
+Valley 3,1,control,270,1145,-29.3,-229.1,-329
+Valley 3,1,amended,410,1397,58.4,-195.8,-322.8
+Valley 1,2,control,261,1754,-214.6,-531.9,-690.6
+Valley 1,2,amended,424,1611,62.9,-220.5,-362.2
+Valley 2,2,control,257,1301,-87.9,-317.8,-432.7
+Valley 2,2,amended,406,1799,-17,-341.6,-503.9
+Valley 3,2,control,288,1515,-107.1,-370.2,-501.8
+Valley 3,2,amended,351,1697,-37.6,-339.2,-489.9
+Valley 1,3,control,237,1029,-30.9,-209.6,-298.9
+Valley 1,3,amended,468,1243,216,-3.7,-113.5
+Valley 2,3,control,265,1052,-30.8,-214.2,-305.9
+Valley 2,3,amended,370,1179,130,-81.6,-187.4
+Valley 3,3,control,194,1144,-93.9,-285.9,-382
+Valley 3,3,amended,387,1452,94.2,-152.7,-276.2

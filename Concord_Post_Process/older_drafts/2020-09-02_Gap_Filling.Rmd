@@ -1,0 +1,304 @@
+---
+title: "Gap Filling"
+output: html_notebook
+---
+
+#example from website
+```{r}
+library(REddyProc)
+library(dplyr)
+
+#example from tutorial
+# #+++ Load data with 1 header and 1 unit row from (tab-delimited) text file
+# fileName <- getExamplePath('Example_DETha98.txt', isTryDownload = TRUE)
+# EddyData <- if (length(fileName)) fLoadTXTIntoDataframe(fileName) else
+#   # or use example dataset in RData format provided with REddyProc
+#   Example_DETha98
+# 
+# #+++ Replace long runs of equal NEE values by NA
+# EddyData <- filterLongRuns(EddyData, "NEE")
+# #+++ Add time stamp in POSIX time format
+# EddyDataWithPosix <- fConvertTimeToPosix(
+#   EddyData, 'YDH',Year = 'Year',Day = 'DoY', Hour = 'Hour') %>% 
+#   filterLongRuns("NEE")
+# #+++ Initalize R5 reference class sEddyProc for post-processing of eddy data
+# #+++ with the variables needed for post-processing later
+# EProc <- sEddyProc$new(
+#   'DE-Tha', EddyDataWithPosix, c('NEE','Rg','Tair','VPD', 'Ustar'))
+# 
+# EProc$sPlotFingerprintY('NEE', Year = 1998)
+```
+
+
+#has to begin on first half hour:0:00 and end on last half hour 0:30
+#adjust data accordingly
+```{r}
+fileName<-('C:/Users/Tommy/flux/Data-exploring/02_Concord/04_Reddy_Proc_data/2020-09-11_reddy_proc.txt')
+
+fileName[is.na(fileName)] <- -9999
+
+
+
+EddyData.F <- if (length(fileName)) fLoadTXTIntoDataframe(fileName) else Example_DETha98
+
+head(EddyData.F,25)
+
+#converting Pa to hpa
+# EddyData.F$VPD = (EddyData.F$VPD/100)
+
+#adding back the timestamp to the radyproc data frame, since when it became a text file the time became its on column.  
+EddyData.F$TIMESTAMP<-strptime(paste(EddyData.F$TIMESTAMP,EddyData.F$Hour,sep=" "),
+                          format="%m/%d/%Y %H:%M", 
+                          tz = "Etc/GMT-8")
+
+
+
+
+
+EddyData.F$Hour<-NULL
+
+head(EddyData.F)
+
+head(EddyData.F$TIMESTAMP)
+
+
+# write.csv(EddyData.F, 'C:/Users/Tommy/flux/Data-exploring/02_Concord/04_Reddy_Proc_data/eddydata_timestamp.csv')
+
+# eddyC <- sEddyProc$new( 'mormon', EddyDataWithPosix.F,
+#                         c('NEE','Rg','Tair','VPD', 'Ustar'),DTS.n=24)
+
+#Setting the basic info and the columns we are interested in analyzing. 
+eddyC <-sEddyProc$new('concord', EddyData.F, c('H','LE', 'NEE', 'rH', 'Ustar', 'Tsoil', 'Tair' , 'Rg'), ColPOSIXTime = "TIMESTAMP", 
+    LatDeg = 37.93799591, LongDeg = -121.9761047, TimeZoneHour = -7)
+
+#making sure it looks good
+eddyC
+
+
+```
+
+#fingerprint plots of the gap fill stuff
+```{r}
+#fingerprint NEE 2019
+eddyC$sPlotFingerprintY('NEE', Year = 2019)
+#fingerprint NEE 2020
+#may data loss from all the bird shit. OMG.....
+eddyC$sPlotFingerprintY('NEE', Year = 2020)
+
+
+#fingerprint Tair 2019
+eddyC$sPlotFingerprintY('Tair', Year = 2019)
+#fingerprint Tair 2020
+eddyC$sPlotFingerprintY('Tair', Year = 2020)
+
+#fingerprint tsoil 2019 (thermocouple 2 5 cm depth)
+eddyC$sPlotFingerprintY('Tsoil', Year = 2019)
+#fingerprint NEE 2020 (thermocouple 2 5cm depth)
+eddyC$sPlotFingerprintY('Tsoil', Year = 2020)
+
+#fingerprint rH 2019
+eddyC$sPlotFingerprintY('rH', Year = 2019)
+#fingerprint rH 2020
+eddyC$sPlotFingerprintY('rH', Year = 2020)
+
+#fingerprint ustar 2019
+eddyC$sPlotFingerprintY('Ustar', Year = 2019)
+#fingerprint u star 2020
+eddyC$sPlotFingerprintY('Ustar', Year = 2020)
+
+#fingerprint H 2019
+eddyC$sPlotFingerprintY('H', Year = 2019)
+#fingerprint H 2020
+eddyC$sPlotFingerprintY('H', Year = 2020)
+
+#fingerprint Le 2019
+eddyC$sPlotFingerprintY('LE', Year = 2019)
+#fingerprint Le 2020
+eddyC$sPlotFingerprintY('LE', Year = 2020)
+
+
+
+
+
+```
+
+#ustar scenarios and thresholds
+```{r}
+# uStarTh <- eddyC$sEstUstarThreshold()
+# uStarTh <- eddyC$sEstUstarThresholdDistribution( nSample = 100L, probs = c(0.05, 0.5, 0.95))
+
+eddyC$sEstimateUstarScenarios(
+    nSample = 100L, probs = c(0.05, 0.5, 0.95))
+eddyC$sGetEstimatedUstarThresholdDistribution()
+
+eddyC$sGetUstarScenarios()
+
+```
+
+
+
+```{r}
+eddyC$sMDSGapFillUStarScens('NEE')
+```
+
+#gapfilling Sensible Heat
+```{r}
+eddyC$sMDSGapFillUStarScens('H')
+
+
+
+
+
+```
+
+
+#Gapfilling Latent Heat
+```{r}
+eddyC$sMDSGapFillUStarScens('LE')
+```
+
+
+#For each of the different u∗ threshold estimates a separate set of output columns of filled NEE and its uncertainty is generated, distinguished by the suffixes given with uStarSuffixes. "_f" denotes the filled value and "_fsd" the estimated standard deviation of its uncertainty.
+```{r}
+grep("NEE_.*_f$",names(eddyC$sExportResults()), value = TRUE)
+grep("NEE_.*_fsd$",names(eddyC$sExportResults()), value = TRUE)
+```
+
+#Sensible Heat
+```{r}
+grep("H_.*_f$",names(eddyC$sExportResults()), value = TRUE)
+grep("H_.*_fsd$",names(eddyC$sExportResults()), value = TRUE)
+```
+
+#Latent Heat
+
+```{r}
+grep("LE_.*_f$",names(eddyC$sExportResults()), value = TRUE)
+grep("LE_.*_fsd$",names(eddyC$sExportResults()), value = TRUE)
+```
+
+
+#fingerprint plot of 5% uncertainty NEE
+
+```{r}
+eddyC$sPlotFingerprintY('NEE_U50_f', Year = 2019)
+
+eddyC$sPlotFingerprintY('NEE_U50_f', Year = 2020)
+
+
+
+```
+
+#Sensible Heat finger print plot
+```{r}
+eddyC$sPlotFingerprintY('H_U50_f', Year = 2019)
+
+eddyC$sPlotFingerprintY('NEE_U50_f', Year = 2020)
+```
+
+#Latent Heat finger print plot
+```{r}
+eddyC$sPlotFingerprintY('LE_U50_f', Year = 2019)
+
+eddyC$sPlotFingerprintY('LE_U50_f', Year = 2020)
+```
+
+
+
+
+#The third post-processing step is partitioning the net flux (NEE) into its gross components GPP and Reco. The partitioning needs to distinguish carefully between night-time and day-time. Therefore it needs a specification of geographical coordinates and time zone to allow computing sunrise and sunset. Further, the missing values in the used meteorological data need to be filled.
+
+
+#Then we are ready to invoke the partitioning, here by the night-time approach, for each of the several filled NEE columns.
+```{r}
+
+eddyC$sMDSGapFill('Tair', FillAll = FALSE,  minNWarnRunLength = NA)     
+  
+eddyC$sMRFluxPartitionUStarScens()
+```
+
+#The results are stored in columns Reco and GPP_f modified by the respective u∗ threshold suffix.
+
+```{r}
+grep("GPP.*_f$|Reco",names(eddyC$sExportResults()), value = TRUE)
+```
+
+
+#Visualizations of the results by a fingerprint plot gives a compact overview.
+
+```{r}
+eddyC$sPlotFingerprintY('GPP_U50_f', Year = 2019)
+
+eddyC$sPlotFingerprintY('GPP_U50_f', Year = 2020)
+
+eddyC$sPlotFingerprintY('Reco_U50', Year = 2019)
+
+eddyC$sPlotFingerprintY('Reco_U50', Year = 2020)
+
+
+
+```
+
+#Estimating the uncertainty of aggregated results
+#The results of the different u∗ threshold scenarios can be used for estimating the uncertainty due to not knowing the threshold.
+
+#First, the mean of the GPP across all the year is computed for each u∗-scenario and converted from μmolCO2m−2s−1 to gCm−2yr−1.
+
+
+```{r}
+FilledEddyData <- eddyC$sExportResults()
+uStarSuffixes <- colnames(eddyC$sGetUstarScenarios())[-1]
+#suffix <- uStarSuffixes[2]
+GPPAggCO2 <- sapply( uStarSuffixes, function(suffix) {
+    GPPHalfHour <- FilledEddyData[[paste0("GPP_",suffix,"_f")]]
+    mean(GPPHalfHour, na.rm = TRUE)
+})
+molarMass <- 12.011
+GPPAgg <- GPPAggCO2 * 1e-6 * molarMass * 3600*24*365.25
+print(GPPAgg)
+
+
+```
+
+#The difference between those aggregated values is a first estimate of uncertainty range in GPP due to uncertainty of the u∗ threshold.
+```{r}
+(max(GPPAgg) - min(GPPAgg)) / median(GPPAgg) 
+```
+
+
+#For a better but more time consuming uncertainty estimate, specify a larger sample of u∗ threshold values, for each repeat the post-processing, and compute statistics from the larger sample of resulting GPP columns. This can be achieved by specifying a larger sequence of quantiles when calling sEstimateUstarScenarios in place of the command shown above.
+
+```{r}
+eddyC$sEstimateUstarScenarios( 
+  nSample = 200, probs = seq(0.025,0.975,length.out = 39) )
+```
+
+#exporting dat
+```{r}
+FilledEddyData <- eddyC$sExportResults()
+CombinedData <- cbind(EddyData.F, FilledEddyData)
+
+write.csv(CombinedData, 'C:/Users/Tommy/flux/Data-exploring/02_Concord/07_Gap_Filled_Data\\gapfilled_data.csv' )
+
+fWriteDataframeToFile(CombinedData, 'DE-Tha-Results.txt', Dir = tempdir())
+```
+
+
+
+#gap filing first three lines by Housen. 
+```{r}
+
+
+# # EProc1 <- sEddyProc$new(case, data.work, c(h.ls[1]),DTS.n = d.hr)
+# #         EProc1$sFillInit(h.ls[1])
+# #         data.work$H_F <- EProc1$sFillMDC(7)$VAR_f
+# 
+# #+++ Add time stamp in POSIX time format
+# EddyDataWithPosix <- fConvertTimeToPosix(
+#   eddy.data, 'YDH',Year = 'Year',Day = 'DoY', Hour = 'Hour') %>% 
+#   filterLongRuns("NEE")
+# 
+#  EProc1 <- sEddyProc$new(
+#   'Concord', EddyDataWithPosix, c('NEE','Rg','Tair','VPD', 'Ustar'))
+
+```

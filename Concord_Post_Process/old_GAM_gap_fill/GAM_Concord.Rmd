@@ -1,0 +1,646 @@
+---
+title: "GAM_concord"
+output: html_document
+---
+#https://noamross.github.io/gams-in-r-course/chapter1 
+```
+
+
+```
+
+## R Markdown
+
+```{r}
+
+require(stringr)
+require(mgcv)
+library(lme4)
+
+library(ggplot2)
+library(cowplot)
+library(tidyverse)
+library(ggpubr)
+
+
+require(zoo)
+require(openair)
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+library(stringr)
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+library(dplyr)
+
+
+
+
+```
+
+
+
+#Defining the data I/O directory
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+GAM.path<-paste0(root.path,"14_GAM_ready_Data\\") # this is tower data for the GAM model lives
+
+eosense.path<- paste0(root.path,"14_GAM_ready_Data\\")#this is were the data for the eosense data for the GAM model lives
+
+GAM_test.path<-paste0(root.path, "14_GAM_ready_Data\\") #this is where the tower data control side post compost lives to test the model against. 
+
+
+out.path<-paste0(root.path, "15_GAM_predict_data\\")
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.GAM_pre_compost<-paste0("2021-07-15_pre_compost_GAM_data.csv")
+
+
+
+cdata.eo_sense <- paste("eo_sense_20210601.csv")
+
+# cdata.GAM_test <- paste("2021-07-13_control_post_compost_GAM_data.csv")
+ 
+```
+
+
+#Tower data for the GAM model
+
+```{r}
+## read in full output file of gap filled data
+GAM_pre_compost <-
+  read.csv(
+    paste0(GAM.path, cdata.GAM_pre_compost, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(GAM_pre_compost) <-
+  colnames(read.csv(
+    paste(GAM.path, cdata.GAM_pre_compost, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(GAM_pre_compost)
+
+tail(GAM_pre_compost)
+
+```
+
+#Read in eosense data for the GAm model
+
+```{r}
+## read in eo_sensee_data
+eosense.data <-
+  read.csv(
+    paste0(eosense.path, cdata.eo_sense, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(eosense.data) <-
+  colnames(read.csv(
+    paste(GAM.path, cdata.eo_sense, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(eosense.data)
+
+tail(eosense.data)
+
+
+```
+
+
+#Post compost control side data to test GAM model against
+```{r}
+
+## read in Data to test the GAM model
+# GAM_test.data <-
+#   read.csv(
+#     paste0(GAM_test.path, cdata.GAM_test, sep = ""),
+#     header = T,
+#     na.strings = "NA",
+#     stringsAsFactors = F
+#   )
+# colnames(GAM_test.data) <-
+#   colnames(read.csv(
+#     paste(GAM.path, cdata.GAM_test, sep = ""),
+#     header = T,
+#     na.strings = "NA"
+#   ))
+# 
+# head(GAM_test.data)
+# 
+# tail(GAM_test.data)
+
+```
+
+#Adding back POSIXT format timestamp to post compost control side data
+```{r}
+
+# GAM_test.data$TIMESTAMP <- strptime(paste(GAM_test.data$TIMESTAMP),
+#                                  format = "%m/%d/%Y %H:%M",
+#                                  tz = "Etc/GMT-8")
+# 
+# 
+# GAM_test.data$TIMESTAMP[500:560]
+# 
+# head(GAM_test.data)
+# 
+# plot( GAM_test.data$TIMESTAMP, GAM_test.data$NEE)
+```
+
+
+
+#adding POSIXT format back to Gam_pre_compost_data
+```{r}
+
+
+GAM_pre_compost$TIMESTAMP <- strptime(paste(GAM_pre_compost$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+
+GAM_pre_compost$TIMESTAMP[500:560]
+
+head(GAM_pre_compost)
+
+plot( GAM_pre_compost$TIMESTAMP, GAM_pre_compost$NEE)
+```
+
+```{r}
+GAM_pre_compost$time.id <- GAM_pre_compost$TIMESTAMP$year + 1900 +
+  (GAM_pre_compost$TIMESTAMP$yday) / 366 +
+  (GAM_pre_compost$TIMESTAMP$hour) / 366 / 24 +
+  (GAM_pre_compost$TIMESTAMP$min) / 366 / 24 / 60
+
+GAM_pre_compost$time.id[1:50]
+plot(GAM_pre_compost$TIMESTAMP, GAM_pre_compost$time.id)
+# which(duplicated(GAM_pre_compost$time.id))
+
+
+
+# which(duplicated(GAM_pre_compost$TIMESTAMP))
+# 
+# 
+# 
+# which(duplicated(GAM_pre_compost$time.id))
+
+# GAM_pre_compost %>% distinct(time.id, .keep_all = TRUE)
+# 
+# GAM_pre_compost[!duplicated(GAM_pre_compost$TIMESTAMP), ]
+
+```
+
+
+
+#creating timestamp for eosense data
+```{r}
+
+eosense.data$Year<-eosense.data$Year +2000
+
+
+eosense.data
+
+
+#combining month day year into a date column. 
+eosense.data$Date<-paste(eosense.data$Month,eosense.data$Day, eosense.data$Year,sep="/")
+
+head( eosense.data$Date, 50)
+
+eosense.data
+
+#creating a timestamp based on 
+eosense.data$TIMESTAMP<-strptime(paste(eosense.data$Date,eosense.data$Time,sep=" "),
+                          format="%m/%d/%Y %H:%M ",
+                          tz = "Etc/GMT-8")
+
+
+eosense.data
+
+eosense.data$TIMESTAMP[1:50]
+
+plot(eosense.data$TIMESTAMP, eosense.data$Flux)
+
+```
+
+```{r}
+#creating time id for eosense data
+eosense.data$time.id<-eosense.data$TIMESTAMP$year+1900+
+  (eosense.data$TIMESTAMP$yday)/366+
+  (eosense.data$TIMESTAMP$hour)/366/24+
+  (eosense.data$TIMESTAMP$min)/366/24/60
+
+eosense.data$time.id[1:50]
+plot(eosense.data$TIMESTAMP,eosense.data$time.id)
+
+which(duplicated(eosense.data$time.id))
+
+eosense.data %>% distinct(time.id, .keep_all = TRUE)
+
+head(eosense.data)
+```
+
+
+#creating full time stamp without gaps for for merging data
+```{r}
+
+# create a full timestamp, 30 mins
+full.time<-data.frame(TIMESTAMP=
+                        seq.POSIXt(min(min(GAM_pre_compost$TIMESTAMP),min(eosense.data$TIMESTAMP)),
+                                   max(max(GAM_pre_compost$TIMESTAMP),max(eosense.data$TIMESTAMP)),
+                                   units = "seconds", by = 1800),
+                      stringsAsFactors=F)
+
+full.time$TIMESTAMP<-strptime(full.time$TIMESTAMP,
+                              format ="%Y-%m-%d %H:%M:%S",
+                              tz = "Etc/GMT-8")
+
+full.time$time.id <-full.time$TIMESTAMP$year+1900+
+  (full.time$TIMESTAMP$yday)/366+
+  (full.time$TIMESTAMP$hour)/366/24+
+  (full.time$TIMESTAMP$min)/366/24/60 
+
+print(paste("Starting timestamp:",full.time$TIMESTAMP[1]))
+print(paste("Ending timestamp:",full.time$TIMESTAMP[nrow(full.time)]))
+
+head(full.time)
+
+which(duplicated(full.time$time.id))
+
+```
+
+#merging tower and eosense data
+```{r}
+tower_eo_sense.data<- merge.data.frame(full.time,
+                         GAM_pre_compost[,-which(colnames(GAM_pre_compost)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+#all=true what ever appears in each file is show in the file data file. sort tries to sort each data frame by merging. in this case probably doesnot matter. timestamp
+
+tower_eo_sense.data<- merge.data.frame(tower_eo_sense.data,
+                         eosense.data[,-which(colnames(eosense.data)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+
+head(tower_eo_sense.data, 50)
+tail(tower_eo_sense.data, 50)
+
+tower_eo_sense.data
+```
+
+
+
+
+
+
+
+
+
+#plotting in blue NEE from Tower and red, flux from chamber
+```{r}
+plot(tower_eo_sense.data$TIMESTAMP, tower_eo_sense.data$Flux, 
+     ylim = c(-20,20),
+     col= "red")
+
+par(new= TRUE)
+
+plot(tower_eo_sense.data$TIMESTAMP, tower_eo_sense.data$NEE, 
+     ylim = c(-20,20),
+     col= "blue")
+
+
+
+```
+
+
+## Plots and linear regression for co2 chamber fluxes
+
+```{r}
+
+##for co2 chamber fluxes 
+ggplot(data = tower_eo_sense.data, aes(x = Year, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = Month, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+
+ggplot(data = tower_eo_sense.data, aes(x = Tsoil_0cm, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = Tsoil_5cm, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = Tsoil_10cm, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = Tsoil_15cm, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = Tsoil_30cm, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x =VWC_Control_GF, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = Tair, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = rH, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+
+
+ggplot(data = tower_eo_sense.data, aes(x = precip, y = Flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = tower_eo_sense.data, aes(x = VPD, y = NEE)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+```
+
+
+
+
+
+
+#gam for Tower NEE
+
+
+```{r}
+
+#colnames(tower_eo_sense.data)
+
+gam_tower_NEE <- gam(NEE ~s(Flux,k=12) + s(VWC_Control_GF, precip, k=30) + s( Rg, Tair,VPD, k=30) ,data = tower_eo_sense.data, method = "REML")
+ # gam_tower_NEE <- gam(NEE[(tower_eo_sense.data $treatment != "treatment_post_compost")&(tower_eo_sense.data $treatment != "exclude")] ~s(Flux[(tower_eo_sense.data $treatment != "treatment_post_compost")&(tower_eo_sense.data $treatment != "exclude")],k=4) + s(precip[(tower_eo_sense.data $treatment != "treatment_post_compost")&(tower_eo_sense.data $treatment != "exclude")],VWC_Control_GF[(tower_eo_sense.data $treatment != "treatment_post_compost")&(tower_eo_sense.data $treatment != "exclude")], k=8) + s(Rg[(tower_eo_sense.data $treatment != "treatment_post_compost")&(tower_eo_sense.data $treatment != "exclude")], k=8)+s(VPD[(tower_eo_sense.data $treatment != "treatment_post_compost")&(tower_eo_sense.data $treatment != "exclude")], k=8)   ,data = tower_eo_sense.data, method = "REML")
+
+
+
+
+#plotting residuals
+plot(gam_tower_NEE, residuals = TRUE)
+
+plot(gam_tower_NEE, residuals = TRUE, pch = 1, cex = 1)
+
+
+# Plot the weight effect
+plot(gam_tower_NEE, select = 4, shade = TRUE, shade.col = "hotpink")
+
+# Make another plot adding the intercept value and uncertainty
+plot(gam_tower_NEE, select = 4, shade = TRUE, shade.col = "hotpink", 
+     shift = coef(gam_tower_NEE)[1], seWithMean = TRUE)
+
+#plotting concurvity
+concurvity(gam_tower_NEE, full = TRUE)
+
+concurvity(gam_tower_NEE, full = FALSE)
+
+
+
+
+gam.check(gam_tower_NEE)
+summary(gam_tower_NEE)
+logLik(gam_tower_NEE)
+
+AIC(gam_tower_NEE)
+
+```
+
+
+#Predicting NEE values with GAM
+```{r}
+
+#created weird outliers use GAM predict
+pred<-predict.gam(gam_tower_NEE,tower_eo_sense.data,type="link",se.fit=TRUE,terms=NULL,
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL)
+
+#V1 in output is the predicted value of your gam
+#V2 is the associated standard error
+
+
+
+plot(pred$fit)
+plot(pred$se.fit)
+
+#put list into a dataframe
+GAM_NEE_predictions <- data.frame(matrix(unlist(pred), nrow=length(pred), byrow=TRUE))
+
+#transpose so that the data is in columns not rows 
+GAM_NEE_predictions<- as.data.frame(t(GAM_NEE_predictions))
+
+#rename variables to something meaningful in the new data frame
+GAM_NEE_predictions$pred_GAM_NEE=GAM_NEE_predictions$V1
+GAM_NEE_predictions$pred_GAM_SE=GAM_NEE_predictions$V2
+
+# or add to original data frame
+tower_eo_sense.data$pred_GAM_NEE=GAM_NEE_predictions$V1
+tower_eo_sense.data$pred_GAM_SE=GAM_NEE_predictions$V2
+
+
+
+```
+#slight variation to code above. produces same results
+```{r}
+# pred_1 <- predict.gam(gam_tower_NEE,tower_eo_sense.data)
+# 
+# 
+# 
+# pred_1_data_frame<- data.frame(matrix(unlist(pred_1), nrow=length(pred_1), byrow=TRUE))
+# 
+# plot(pred_1_data_frame$matrix.unlist.pred_1...nrow...length.pred_1...byrow...TRUE.)
+# 
+# tower_eo_sense.data$pred_GAM_NEE=GAM_NEE_predictions$v1
+
+```
+
+
+```{r}
+#creating a new NEE column with the modeled control side data
+tower_eo_sense.data $NEE_control_GF_GAM <- (tower_eo_sense.data$NEE * 1)
+
+
+summary(tower_eo_sense.data $NEE_control_GF_GAM)
+
+
+
+#making any NA values measured by the tower the chamber gapfilled values.
+tower_eo_sense.data$NEE_control_GF_GAM[is.na(tower_eo_sense.data$NEE_control_GF_GAM)] <-
+  tower_eo_sense.data$pred_GAM_NEE[is.na(tower_eo_sense.data$NEE_control_GF_GAM)]
+
+
+
+
+
+#plotting
+plot(tower_eo_sense.data$TIMESTAMP,tower_eo_sense.data$NEE_control_GF_GAM,
+     ylim = c(-20,50),
+     col= 'red')
+
+par(new=TRUE)
+plot(tower_eo_sense.data$TIMESTAMP, tower_eo_sense.data$NEE,
+     ylim = c(-20,50))
+
+plot(tower_eo_sense.data$TIMESTAMP, tower_eo_sense.data$pred_GAM_NEE)
+
+with(tower_eo_sense.data, boxplot(tower_eo_sense.data$NEE_control_GF_GAM~treatment, ylim =c (-40,40)
+                          ))
+#comparing NEE data to chamber filled data
+summary(tower_eo_sense.data$NEE)
+summary(tower_eo_sense.data $NEE_control_GF_GAM)
+
+
+summary(tower_eo_sense.data$NEE[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+summary(tower_eo_sense.data $NEE_control_GF_GAM[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+
+
+#some  outliers. Removing any values greater or smaller than Max and min original NEE values recorded on the control side.
+
+#from overall data removing any points greater than 22.936
+tower_eo_sense.data$NEE_control_GF_GAM[ tower_eo_sense.data$NEE_control_GF_GAM > 22.936] <-NA
+
+
+#from the data post compost application removing any data points greater than 15.07 and less than -34.211. The max and min values recorded by the tower during that time
+tower_eo_sense.data$NEE_control_GF_GAM[ tower_eo_sense.data$NEE_control_GF_GAM > 15.007 & tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")  ] <-NA
+
+tower_eo_sense.data$NEE_control_GF_GAM[ tower_eo_sense.data$NEE_control_GF_GAM < -34.211 & tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16") ] <-NA
+
+#comparing orginal NEE data to GF with chambers again
+summary(tower_eo_sense.data $NEE_control_GF_GAM)
+summary(tower_eo_sense.data$NEE)
+
+#comparing post compost application
+summary(tower_eo_sense.data $NEE_control_GF_GAM[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+summary(tower_eo_sense.data$NEE[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+
+
+#plotting overall data
+plot(tower_eo_sense.data$NEE_control_GF_GAM ,
+     ylim=c (-60,20),
+     col ="red")
+par(new= TRUE)
+plot(tower_eo_sense.data$NEE,
+     ylim=c (-60,20),
+     col ="blue")
+
+#plotting data post compost application
+plot(tower_eo_sense.data$TIMESTAMP[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")],tower_eo_sense.data$NEE_control_GF_GAM [tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")],
+     ylim=c (-60,20),
+     ylab = "NEE",
+     xlab ="2020-2021",
+     main = "Control Side tower data (blue) and GF GAM Data (red)",
+     col ="red")
+par(new= TRUE)
+plot(tower_eo_sense.data$TIMESTAMP[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")],tower_eo_sense.data$NEE[tower_eo_sense.data $ TIMESTAMP >as.POSIXct("2020-10-16")],
+     ylim=c (-60,20),
+     ylab = "",
+     xlab = "",
+     col ="blue")
+
+```
+
+#Final check for duplicate rows. Some remove them
+```{r}
+
+
+#seeing which rows are duplicated
+which(duplicated(tower_eo_sense.data$TIMESTAMP))
+
+#removing duplicated rows
+tower_eo_sense.data<-tower_eo_sense.data[!duplicated(tower_eo_sense.data$TIMESTAMP), ]
+
+#checking that this worked
+
+ which(duplicated(tower_eo_sense.data$TIMESTAMP))
+ 
+ #removing any rows with NA in time.id column
+ tower_eo_sense.data <- tower_eo_sense.data[ !(tower_eo_sense.data$time.id %in% c(NA)), ]
+ 
+#removing any rows with NA in TIMESTAMP column 
+  tower_eo_sense.data <- tower_eo_sense.data[ !(tower_eo_sense.data$TIMESTAMP %in% c(NA)), ]
+ 
+ tower_eo_sense.data
+ 
+
+
+
+#also need to remove rows with duplicate time stamps
+
+
+```
+
+
+
+#wrting a CSV of the data with the gap filled values
+```{r}
+write.csv(tower_eo_sense.data,
+          paste(out.path,Sys.Date(),"_Control_side_gap_filled_via_GAM.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

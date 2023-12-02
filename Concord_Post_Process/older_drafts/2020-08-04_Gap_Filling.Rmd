@@ -1,0 +1,142 @@
+---
+title: "Gap Filling"
+output: html_notebook
+---
+
+#example from website
+```{r}
+library(REddyProc)
+library(dplyr)
+
+#example from tutorial
+# #+++ Load data with 1 header and 1 unit row from (tab-delimited) text file
+# fileName <- getExamplePath('Example_DETha98.txt', isTryDownload = TRUE)
+# EddyData <- if (length(fileName)) fLoadTXTIntoDataframe(fileName) else
+#   # or use example dataset in RData format provided with REddyProc
+#   Example_DETha98
+# 
+# #+++ Replace long runs of equal NEE values by NA
+# EddyData <- filterLongRuns(EddyData, "NEE")
+# #+++ Add time stamp in POSIX time format
+# EddyDataWithPosix <- fConvertTimeToPosix(
+#   EddyData, 'YDH',Year = 'Year',Day = 'DoY', Hour = 'Hour') %>% 
+#   filterLongRuns("NEE")
+# #+++ Initalize R5 reference class sEddyProc for post-processing of eddy data
+# #+++ with the variables needed for post-processing later
+# EProc <- sEddyProc$new(
+#   'DE-Tha', EddyDataWithPosix, c('NEE','Rg','Tair','VPD', 'Ustar'))
+# 
+# EProc$sPlotFingerprintY('NEE', Year = 1998)
+```
+
+
+#has to begin on first half hour:0:00 and end on last half hour 0:30
+#adjust data accordingly
+```{r}
+fileName<-('C:/Users/Tommy/flux/Data-exploring/02_Concord/04_Reddy_Proc_data/2020-08-04_compressed_Ready_Proc_master_eddy_met_concord.txt')
+
+
+
+EddyData.F <- if (length(fileName)) fLoadTXTIntoDataframe(fileName) else Example_DETha98
+head(EddyData.F,25)
+
+#converting Pa to hpa
+EddyData.F$VPD = (EddyData.F$VPD/100)
+
+#adding back the timestamp to the radyproc data frame, since when it became a text file the time became its on column.  
+EddyData.F$TIMESTAMP<-strptime(paste(EddyData.F$Date,EddyData.F$Hour,sep=" "),
+                          format="%m/%d/%Y %H:%M", 
+                          tz = "Etc/GMT-8")
+head(EddyData.F,25)
+
+
+
+
+
+# write.csv(EddyData.F, 'C:/Users/Tommy/flux/Data-exploring/02_Concord/04_Reddy_Proc_data/eddydata_timestamp.csv')
+
+# eddyC <- sEddyProc$new( 'mormon', EddyDataWithPosix.F,
+#                         c('NEE','Rg','Tair','VPD', 'Ustar'),DTS.n=24)
+
+#Setting the basic info and the columns we are interested in analyzing. 
+eddyC <-sEddyProc$new('concord', EddyData.F, c('Tair','VPD', 'Ustar', 'H', 'LE', 'NEE', 'rH', 'Tsoil' ), ColPOSIXTime = "TIMESTAMP", 
+    LatDeg = 37.93799591, LongDeg = -121.9761047, TimeZoneHour = -7)
+
+#making sure it looks good
+eddyC
+
+
+```
+
+#fingerprint plots of the gap fill stuff
+```{r}
+#fingerprint NEE 2019
+eddyC$sPlotFingerprintY('NEE', Year = 2019)
+#fingerprint NEE 2020
+#may data loss from all the bird shit. OMG.....
+eddyC$sPlotFingerprintY('NEE', Year = 2020)
+
+
+#fingerprint Tair 2019
+eddyC$sPlotFingerprintY('Tair', Year = 2019)
+#fingerprint Tair 2020
+eddyC$sPlotFingerprintY('Tair', Year = 2020)
+
+#fingerprint tsoil 2019 (thermocouple 2 5 cm depth)
+eddyC$sPlotFingerprintY('Tsoil', Year = 2019)
+#fingerprint NEE 2020 (thermocouple 2 5cm depth)
+eddyC$sPlotFingerprintY('Tsoil', Year = 2020)
+
+#fingerprint rH 2019
+eddyC$sPlotFingerprintY('rH', Year = 2019)
+#fingerprint rH 2020
+eddyC$sPlotFingerprintY('rH', Year = 2020)
+
+#fingerprint ustar 2019
+eddyC$sPlotFingerprintY('Ustar', Year = 2019)
+#fingerprint u star 2020
+eddyC$sPlotFingerprintY('Ustar', Year = 2020)
+
+#fingerprint H 2019
+eddyC$sPlotFingerprintY('H', Year = 2019)
+#fingerprint H 2020
+eddyC$sPlotFingerprintY('H', Year = 2020)
+
+#fingerprint Le 2019
+eddyC$sPlotFingerprintY('LE', Year = 2019)
+#fingerprint Le 2020
+eddyC$sPlotFingerprintY('LE', Year = 2020)
+
+#fingerprint VPD 2019
+eddyC$sPlotFingerprintY('VPD', Year = 2019)
+#fingerprint VPD 2020
+eddyC$sPlotFingerprintY('VPD', Year = 2020)
+
+
+
+```
+
+#ustar scenarios
+```{r}
+uStarTh <- eddyC$sEstUstarThreshold()
+uStarTh <- eddyC$sEstUstarThresholdDistribution( nSample = 100L, probs = c(0.05, 0.5, 0.95))
+```
+
+
+#gap filing first three lines by Housen. 
+```{r}
+
+
+# # EProc1 <- sEddyProc$new(case, data.work, c(h.ls[1]),DTS.n = d.hr)
+# #         EProc1$sFillInit(h.ls[1])
+# #         data.work$H_F <- EProc1$sFillMDC(7)$VAR_f
+# 
+# #+++ Add time stamp in POSIX time format
+# EddyDataWithPosix <- fConvertTimeToPosix(
+#   eddy.data, 'YDH',Year = 'Year',Day = 'DoY', Hour = 'Hour') %>% 
+#   filterLongRuns("NEE")
+# 
+#  EProc1 <- sEddyProc$new(
+#   'Concord', EddyDataWithPosix, c('NEE','Rg','Tair','VPD', 'Ustar'))
+
+```
