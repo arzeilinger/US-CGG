@@ -1,0 +1,817 @@
+---
+title: "Workflow for half-hourly footprints"
+author: "Housen Chu"
+date: "4/22/2021"
+output: github_document
+---
+This document demonstrates the workflow of half-hourly footprint calculations and footprint-weighted land cover contribution at the Concord flux tower -- [US-CGG](https://ameriflux.lbl.gov/sites/siteinfo/US-CGG). 
+
+20210422 update:
+
+* Constrain the contour to 80%, avoiding the cases that fails to find 90% contour within the footprint domain
+* Ensure number of footprint grids > 600 * 600, avoiding problematic contours using coarse pixels
+
+
+```{r}
+rm(list=ls())
+```
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = 'svg')
+#workDir <- "D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\flux_site_working\\"
+workDir <- "C:\\Users\\tfens\\R_REPOS\\flux_site_working\\"
+
+```
+
+Set working directory as **workDir**, with associated sub-directories as follows: 
+
+* data\ source files of 30 min flux/met files
+  + pre-downloaded google maps surrounding selected sites
+  + shape files for pre-defined areas
+* R\ main workflow and required functions
+  + footprint_workflow_v1.Rmd demonstrates the workflow of half-hourly footprint calculations
+* output\ include following outputs for each site
+  + 4 shape files for all half-hourly footprint contours (50%-80%)
+  + 1 geo-tiff (stack) for all half-hourly footprint weights
+  + 1 csv file containing basic information for all half-hourly footprints  
+
+```{r include = T}
+dataDir <- paste0(workDir, "data\\")
+outDir <- paste0(workDir, "output\\")
+rDir <- paste0(workDir, "R\\")
+```
+
+### Required packages
+A list of required packages need to be installed. Note: EBImage is not a CRAN package, and needs to be installed separately. See the corresponding [link](https://bioconductor.org/packages/release/bioc/html/EBImage.html) for details.  
+
+```{r include=T, message = F}
+library(ggplot2)
+library(ggmap)
+library(rgdal)
+library(geosphere)
+library(zoo)
+library(stringr)
+library(sp)
+library(raster)
+library(SpatialEpi)
+library(reshape2)
+library(REddyProc)
+#library(spatialfil)  # required by footprint function
+library(EBImage)     # required by footprint function
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("EBImage")
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+# BiocManager::install("EBImage")
+
+# install.packages("remotes")
+# remotes::install_github("nickwing/spatialfil")
+```
+
+### Required functions
+Assume these functions are stored at the \\R directory
+
+```{r include=T, message = F}
+source(file.path(rDir, "math_util.R"))
+source(file.path(rDir, "calc_footprint_FFP_climatology_v2.R"))
+source(file.path(rDir, "XY_to_latlon2.R"))
+source(file.path(rDir, "polar2cart.R"))
+source(file.path(rDir, "pbl_height.R"))
+source(file.path(rDir, "find_equal_dist.R"))
+source(file.path(rDir, "footprint_plot_v6.R"))
+source(file.path(rDir, "crop_fpt_climt.R"))
+source(file.path(rDir, "ext_radiation_v2.R"))
+source(file.path(rDir, "get_extent.R"))
+source(file.path(rDir, "data_filtering.R"))
+```
+
+### Workflow control parameters 
+The following parameters are used to control the workflow, including input, output, data filtering. By default, a csv file with basic information of footprints for each half hour is written out. Additional outputs, like shape files for all half-hourly footprint contours, geo-tiff files for footprint weights, and footprint maps can be written out.  
+
+```{r include=T, echo=T}
+# Create a version sub directory
+ver <- "20230602"     # for pulling site list
+if (!dir.exists(paste(outDir, ver, sep = "")))
+  dir.create(paste(outDir, ver, sep = ""))
+
+output.shp <- T            # output shape file for footprint contours
+output.tiff <- T           # output geo-tiff file for footprint weight maps
+plot.fpt <- T              # output footprint map plots
+
+#########################  Data filtering for footprint climatology runs
+zl.u <- NA                 # outer bounds of ZL range  -zl.u< <zl.u
+ustr.u <- 1.0              # upper bound of accepted USTAR (m/s)
+ustr.l <- 0.1              # lower bound of accepted USTAR (m/s)
+wd.u <- 360                # upper bound of accepted WD (degree)
+wd.l <- 0                  # lower bound of accepted WD (degree)
+lo.u <- NA                 # outer bounds of accepted MO_LENGTH (m), -lo.u< <lo.u, set NA is not used
+```
+
+### Site parameter
+The following parameters are site-specific, including the file source, site lat/long, sensor & canopy height, footprint model parameters. Both preprocessed file and downloaded google map are located under \\data directory.
+
+```{r include=T, echo=T}
+file.ls <- "2022-11-07_eddy_met_cimis_gap_filled.csv"
+map.ls <- "Concord_growing_season_basemap.RData" # edenlanding_basemap.RData
+
+case <- "US-CGG"
+latitude <- 37.937996
+longitude <- -121.976105
+utc.offset <- -8         # UTC offset (-8 Pacific standard time)
+zm <- 3.67               # EC height(m)
+z0 <- 0.05               # roughness length (m), ~0.1 hc
+d <- 0                   # zero-plane displacement height (m), ~0.66 hc
+footprint.domain <- 600  # target spatial domain for footprint calculation (m), distance from tower
+footprint.res <- 2       # target spatial resolution for footprint calculation (m), pixel size
+                         # make sure footprint.domain / footprint.res is an integer
+                         # also make sure footprint.domain / footprint.res >= 300    
+target.mon <- "2020_02"  # target month to run footprints ("YYYY_MM")
+
+## don't modify below
+src.res <- "HH"                          # time resolution, HH for half-hourly   
+d.hr <- ifelse(src.res == "HH", 48, 24)
+hr <- ifelse(d.hr == 48, 30, 60)
+target.contour <- seq(50, 80, 10)        # target contour for footprint climatology
+crop.contour <- 80                       # target contour for cropping footprint weights
+pixel.n <- footprint.domain / footprint.res * 2
+
+```
+
+### Prepare map & shapefile
+Get pre-downloaded Google map, load as basemap. Also, get shape files for treatment/control areas.
+
+```{r include = T, echo = T, fig.width = 6, dev = "svg", collapse = TRUE}
+## pre-downloaded Google map
+load(file = paste0(dataDir, map.ls))
+
+## work on shape files
+# polygons
+#update to make control area instead of wetland areas
+shp.ls1 <- c(
+  "compost_app_area_shape_file.shp"
+ 
+)
+
+shp.comb1 <- raster::shapefile(paste0(dataDir, shp.ls1[1]))
+shp.comb1 <- sp::spChFIDs(shp.comb1, paste(substr(shp.ls1[1], 1, nchar(shp.ls1)[1] - 4)))
+
+
+
+# for (i in 2:length(shp.ls1)) {
+#   shp.tmp <- raster::shapefile(paste0(dataDir, shp.ls1[i]))
+#   shp.tmp <- sp::spChFIDs(shp.tmp, paste(substr(shp.ls1[i], 1, nchar(shp.ls1)[i] - 4)))
+#   shp.comb1 <- rbind(shp.comb1, shp.tmp, makeUniqueIDs = T)
+# }
+
+##
+sitemap1 <- ggmap::ggmap(concord_tower) +
+  geom_polygon(
+    aes(x = long,
+        y = lat,
+        group = id,
+        color = as.factor(id)
+    ),
+    fill = NA,
+    size = 0.5,
+    data = ggplot2::fortify(shp.comb1),
+    na.rm = T
+  )+
+  geom_point(
+    aes(x = longitude, y = latitude),
+    fill = "pink",
+    color = "red",
+    size = 2,
+    shape = 21
+  ) +
+  theme(
+    legend.title = element_blank(),
+    legend.box.spacing = unit(0.2, "line"),
+    legend.direction = "vertical",
+    legend.spacing.y = unit(0.4, "line"),
+    legend.key.height = unit(0.8, "line"),
+    legend.position = c(0.005, 0.800),
+    legend.justification = c(0, 0),
+    legend.key = element_rect(fill = NA, color = NA),
+    legend.background = element_rect(fill = NA, color = NA)
+  ) 
+
+print(sitemap1)
+
+```
+
+### Read in Flux/Met data file
+Down-select needed variables for footprint calculation. Assume the original file in EddyPro's full output format (see/check below for variable names/units). Combine with potential radiation to differentiate day/night. 
+
+```{r include=T, echo=T}
+# read in pre-processed/quality-controlled file
+data.org <-
+  read.csv(paste0(dataDir, file.ls),
+           header = T,
+           stringsAsFactors = F)
+
+### prepare data
+data.work <-
+  data.org[, c(
+    "TIMESTAMP",
+    "L",                   # Obukhov length m  
+    "u.",                  # friction velocity m s-1
+    "H",                   # sensible heat flux W m-2
+    "air_heat_capacity",   # J1 kg-1 K-1
+    "air_density",         # kg m-3
+    "sonic_temperature",   # deg C
+    "wind_speed",          # m s-1
+    "wind_dir",            # deg from N
+    "v_var"                # variance of lateral wind velocity m2 s-2
+  )]
+colnames(data.work) <-
+  c("TIMESTAMP",
+    "MO_LENGTH",
+    "USTAR",
+    "H",
+    "Cp",
+    "rho",
+    "Tv",
+    "WS",
+    "WD",
+    "V_SIGMA")
+
+## Unit conversion
+data.work$V_SIGMA <- sqrt(data.work$V_SIGMA)
+data.work$WT <- data.work$H / data.work$rho / data.work$Cp
+
+head(data.work$TIMESTAMP)
+
+data.work$TIMESTAMP <-
+  strptime(data.work$TIMESTAMP, format = "%m/%d/%Y %H:%M", tz = "GMT")
+
+head(data.work$TIMESTAMP)
+tail(data.work$TIMESTAMP)
+#### bring in potential incoming radiation, for day/night separation
+data.work$TIMESTAMP_END <-
+  as.character(((data.work$TIMESTAMP$year + 1900) * 10 ^ 8 +
+                  (data.work$TIMESTAMP$mon + 1) * 10 ^ 6 +
+                  (data.work$TIMESTAMP$mday) * 10 ^ 4 +
+                  data.work$TIMESTAMP$hour * 10 ^ 2 +
+                  data.work$TIMESTAMP$min
+  ))
+
+## calculate potential radiation based on site's location & time zone
+SW_IN_POT <- ext_radiation_v2(
+  latitude,
+  longitude,
+  year = c(data.work$TIMESTAMP$year[1]+1900,
+           data.work$TIMESTAMP$year[nrow(data.work)]+1900),
+  utc.offset = utc.offset,
+  res = src.res
+)
+
+SW_IN_POT <-
+  SW_IN_POT[c(
+    which(SW_IN_POT$TIMESTAMP_END == data.work$TIMESTAMP_END[1]):
+      which(SW_IN_POT$TIMESTAMP_END == data.work$TIMESTAMP_END[nrow(data.work)])
+  ), ]
+
+data.work <- merge.data.frame(data.work,
+                              SW_IN_POT,
+                              by = "TIMESTAMP_END",
+                              all.y = T)
+# use potential radiation to diferentiate day/night
+data.work$DAYNIGHT <- ifelse(data.work$SW_IN_POT > 0, "DAY", "NIGHT")
+data.work[1:3,]
+
+```
+
+### Work on planetary boundary layer height (PBL)
+The planetary boundary layer height, required for Kljun 2015 footprint model, was calculated following Kljun et al. (2015), who used the Obukhov length, friction velocity, air temperature, and sensible heat flux in the calculations. As the calculation of PBL is time-dependent, fill the input variables before calculation.
+
+```{r include=T, echo=T}
+#### Work on filling the gaps in H, USTAR, Tv, and MO_LENGTH
+data.work$DateTime <- data.work$TIMESTAMP
+#+++ Initialize new sEddyProc processing class with more columns
+EProc1 <- REddyProc::sEddyProc$new(case, data.work, "WT", DTS = d.hr)
+EProc1$sFillInit("WT")
+data.work$WT_F <- EProc1$sFillMDC(7)$VAR_f
+
+EProc2 <- REddyProc::sEddyProc$new(case, data.work, "USTAR", DTS = d.hr)
+EProc2$sFillInit("USTAR")
+data.work$USTAR_F <- EProc2$sFillMDC(7)$VAR_f
+
+EProc3 <- REddyProc::sEddyProc$new(case, data.work, "Tv", DTS = d.hr)
+EProc3$sFillInit("Tv")
+data.work$Tv_F <- EProc3$sFillMDC(7)$VAR_f
+
+data.work$MO_LENGTH_F <-
+  (-data.work$USTAR_F ^ 3 * (data.work$Tv_F + 273.15) / 0.4 / 9.81 / (data.work$WT_F))
+
+data.work$zL <- (zm - d) / data.work$MO_LENGTH
+data.work$zL_F <- (zm - d) / data.work$MO_LENGTH_F
+
+###### Work on PBL
+data.work$PBL <- pbl_height(
+  latitude = latitude,
+  TIMESTAMP = data.work$TIMESTAMP,
+  zL = data.work$zL_F,                 # MO stability parameter (unitless)
+  USTAR = data.work$USTAR_F,           # friction velocity (m s-1)
+  MO_LENGTH = data.work$MO_LENGTH_F,   # Obukhov length (m)  
+  WT = data.work$WT_F,                 # Covariance of vertical wind & temperature   
+  Tv = data.work$Tv_F,                 # virtual/sonic temperature (deg C)
+  DAYNIGHT = data.work$DAYNIGHT,       # day/night index
+  neutral.cri = 0.05,
+  hr = hr,
+  plot = T,
+  outDir = paste0(outDir, "\\", ver, "\\"),
+  file.ext = paste(case, sep = "")
+)
+```
+
+### Data filtering 
+This applies further filtering specific for footprint calculation.
+
+```{r include=T, echo=T}
+# filtering data by defined thresholds
+data.work <- data_filtering(data.work = data.work,
+                            ustr.u = ustr.u,
+                            ustr.l = ustr.l,
+                            wd.u = wd.u,
+                            wd.l = wd.l,
+                            lo.u = lo.u,
+                            zl.u = zl.u)
+
+```
+
+### Create a monthly index
+The following workflow executes on selected target month.  
+
+```{r include=T, echo=T}
+###### create a index for group processing
+data.work$cat1 <-
+  paste0(data.work$TIMESTAMP$year + 1900,
+         "_",
+         stringr::str_pad(data.work$TIMESTAMP$mon + 1, 2, pad = "0"))
+
+# get expected data record number, before filtering
+cat.ls.all <- as.data.frame(table(data.work$cat1))
+
+data.work <- data.work[!is.na(data.work$USTAR) &
+                         !is.na(data.work$WS) &
+                         !is.na(data.work$MO_LENGTH) &
+                         !is.na(data.work$PBL) &
+                         !is.na(data.work$WD) &
+                         !is.na(data.work$V_SIGMA), ]
+
+### create a grouping index, do footprint for each group
+cat.ls.work <- as.data.frame(table(data.work$cat1))
+
+## get expected & available data records for each group
+cat.ls.all <- merge(
+  cat.ls.all,
+  cat.ls.work,
+  by = "Var1",
+  all = T,
+  suffixes = c("_org", "_wrk")
+)
+
+cat.ls.all
+```
+
+### Work on footprint caculation
+This section work through each half hour with all needed variables, calculate the footprint (weights & contours), and prepare the results in shape files (contours), geo-tiff (weights), and csv (valid time stamps & basic info) 
+
+```{r include=T, echo=T}
+data.work.tmp <- data.work[data.work$cat1 == target.mon, ]
+
+wgt.shp.stack <- list()
+fpt.shp.all50 <- list()
+fpt.shp.all60 <- list()
+fpt.shp.all70 <- list()
+fpt.shp.all80 <- list()
+fpt_KL15.cvt.all <- data.frame()
+valid.fpt.ls <- data.frame()
+
+# loop through each half hour
+for (i33 in 1:nrow(data.work.tmp)) {
+  
+  #### main function for footprint calculation
+  # See Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid, 2015:
+  # The simple two-dimensional parameterisation for Flux Footprint Predictions FFP.
+  # Geosci. Model Dev. 8, 3695-3713, doi:10.5194/gmd-8-3695-2015, for details.
+  
+  fpt_KL15 <-
+    calc_footprint_FFP_climatology_v2(
+      zm = zm - d,                                    # Measurement height above displacement height (i.e. z-d) [m]
+      z0 = z0,                                        # Roughness length [m]
+      umean = data.work.tmp$WS[i33],                  # wind speed at zm [ms-1]
+      h = data.work.tmp$PBL[i33],                     # boundary layer height [m]
+      ol = data.work.tmp$MO_LENGTH[i33],              # Obukhov length [m]
+      sigmav = data.work.tmp$V_SIGMA[i33],            # standard deviation of lateral velocity fluctuations [ms-1]
+      ustar = data.work.tmp$USTAR[i33],               # friction velocity [ms-1]
+      wind_dir = data.work.tmp$WD[i33],               # wind direction in degrees (of 360)
+      domain = c(-1, 1, -1, 1) * footprint.domain,    # Domain size as an array of [xmin xmax ymin ymax] [m]
+      nx = pixel.n,                                   # integer scalars defining the number of grid elements in x and y
+      r = target.contour,                             # Percentage of source area for which to provide contours
+      smooth_data = 1,                                # Apply convolution filter to smooth footprint climatology if smooth_data=1
+      rslayer = 1                                     # Calculate footprint even if zm within roughness sublayer: set rslayer = 1
+    )
+  
+  ### used to clean contour (not sure why, but some sites have NA in the contour)
+  ##   drop all points beyond the NA
+  for (j1 in 1:length(target.contour)) {
+    na.loc1 <- which(is.na(fpt_KL15$xr[[j1]]))
+    na.loc2 <- which(is.na(fpt_KL15$yr[[j1]]))
+    na.loc <- ifelse(length(na.loc1) > 0 & length(na.loc2) > 0,
+                     min(c(na.loc1, na.loc2), na.rm = T),
+                     0)
+    if (na.loc > 0) {
+      fpt_KL15$xr[[j1]] <- fpt_KL15$xr[[j1]][c(1:(na.loc - 1))]
+      fpt_KL15$yr[[j1]] <- fpt_KL15$yr[[j1]][c(1:(na.loc - 1))]
+    }
+  }
+
+  #################################################################################
+  ## check if outermost contour enclose the tower as expected
+  ## use to double check if footprint climatology calculation fail
+  ignore.fpt.KL15 <- ifelse(fpt_KL15$flag_err == 1, T,
+                            ifelse(length(fpt_KL15$xr[[length(target.contour)]]) <
+                                     length(fpt_KL15$xr[[1]]), T, F)) |
+    ifelse(length(fpt_KL15$x_2d) == 1,
+           T,
+           ifelse(
+             sum(fpt_KL15$xr[[length(target.contour)]] > 0, na.rm = T) == 0 |
+               sum(fpt_KL15$xr[[length(target.contour)]] < 0, na.rm = T) == 0 |
+               sum(fpt_KL15$yr[[length(target.contour)]] > 0, na.rm = T) == 0 |
+               sum(fpt_KL15$yr[[length(target.contour)]] < 0, na.rm = T) == 0,
+             T,
+             F
+           ))
+
+  ################################################################################
+  ###### parse, store footprint information
+  if (!ignore.fpt.KL15) {
+    ## Store footprint contours and Convert XY coordinate to Lat/Long
+    fpt_KL15.cvt <-
+      rbind(
+        data.frame(
+          lon = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[1]],
+            y.ls = fpt_KL15$yr[[1]]
+          )[, 1],
+          lat = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[1]],
+            y.ls = fpt_KL15$yr[[1]]
+          )[, 2],
+          p = target.contour[1] / 100,
+          model = 1
+        ),
+        data.frame(
+          lon = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[2]],
+            y.ls = fpt_KL15$yr[[2]]
+          )[, 1],
+          lat = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[2]],
+            y.ls = fpt_KL15$yr[[2]]
+          )[, 2],
+          p = target.contour[2] / 100,
+          model = 1
+        ),
+        data.frame(
+          lon = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[3]],
+            y.ls = fpt_KL15$yr[[3]]
+          )[, 1],
+          lat = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[3]],
+            y.ls = fpt_KL15$yr[[3]]
+          )[, 2],
+          p = target.contour[3] / 100,
+          model = 1
+        ),
+        data.frame(
+          lon = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[4]],
+            y.ls = fpt_KL15$yr[[4]]
+          )[, 1],
+          lat = XY_to_latlon2(
+            lat.center = latitude,
+            lon.center = longitude,
+            x.ls = fpt_KL15$xr[[4]],
+            y.ls = fpt_KL15$yr[[4]]
+          )[, 2],
+          p = target.contour[4] / 100,
+          model = 1
+        )
+      )
+
+    fpt_KL15.cvt <- na.omit(fpt_KL15.cvt)
+    fpt_KL15.cvt.all <- rbind.data.frame(fpt_KL15.cvt.all,
+                                         fpt_KL15.cvt)
+
+    ### compile shape files for all half-hourly footprint contours
+    fpt.shp.all80[[i33]] <-
+      sp::Polygons(list(sp::Polygon(coords = cbind(
+        c(fpt_KL15.cvt$lon[fpt_KL15.cvt$p == 0.8]),
+        c(fpt_KL15.cvt$lat[fpt_KL15.cvt$p ==
+                             0.8])
+      ))),
+      ID = i33)
+    fpt.shp.all70[[i33]] <-
+      sp::Polygons(list(sp::Polygon(coords = cbind(
+        c(fpt_KL15.cvt$lon[fpt_KL15.cvt$p == 0.7]),
+        c(fpt_KL15.cvt$lat[fpt_KL15.cvt$p ==
+                             0.7])
+      ))),
+      ID = i33)
+    fpt.shp.all60[[i33]] <-
+      sp::Polygons(list(sp::Polygon(coords = cbind(
+        c(fpt_KL15.cvt$lon[fpt_KL15.cvt$p == 0.6]),
+        c(fpt_KL15.cvt$lat[fpt_KL15.cvt$p ==
+                             0.6])
+      ))),
+      ID = i33)
+    fpt.shp.all50[[i33]] <-
+      sp::Polygons(list(sp::Polygon(coords = cbind(
+        c(fpt_KL15.cvt$lon[fpt_KL15.cvt$p == 0.5]),
+        c(fpt_KL15.cvt$lat[fpt_KL15.cvt$p ==
+                             0.5])
+      ))),
+      ID = i33)
+
+    ################################################################
+    #### work on footprint weight function output
+    ## crop footprint weight to crop.contour, normalize to 100% within the crop.contour
+    crop.weight <-
+      crop_fpt_climt(
+        x = seq(fpt_KL15$x_2d[1], fpt_KL15$x_2d[(pixel.n + 1) * (pixel.n + 1)], length.out = (pixel.n + 1)),
+        y = seq(fpt_KL15$y_2d[1], fpt_KL15$y_2d[(pixel.n + 1) * (pixel.n + 1)], length.out = (pixel.n + 1)),
+        z = fpt_KL15$fclim_2d,
+        crop.bound <-
+          cbind(fpt_KL15$xr[[which(target.contour == crop.contour)]],
+                fpt_KL15$yr[[which(target.contour == crop.contour)]]),
+        trim.beyond.bound = F
+      )
+    crop.weight$weight[is.na(crop.weight$weight)] <- 0
+
+    fpt_weight <- data.frame(
+      lon = XY_to_latlon2(
+        lat.center = latitude,
+        lon.center = longitude,
+        x.ls = crop.weight$x,
+        y.ls = crop.weight$y
+      )[, 1],
+      lat = XY_to_latlon2(
+        lat.center = latitude,
+        lon.center = longitude,
+        x.ls = crop.weight$x,
+        y.ls = crop.weight$y
+      )[, 2],
+      weight = crop.weight$weight,
+      model = 1
+    )
+
+    wgt.shp <- raster::rasterFromXYZ(fpt_weight[, c(1, 2, 3)],
+                                     crs = CRS("+proj=longlat +datum=WGS84"))
+
+    wgt.shp.stack[[i33]] <- wgt.shp
+
+    ## basic information for each valid footprint, also calculate the footprint-weighted land cover percentages
+    valid.fpt.ls <- rbind.data.frame(
+      valid.fpt.ls,
+      cbind(
+        data.work.tmp[i33,
+                      c("TIMESTAMP", "DAYNIGHT", "cat1", "WD", "zL", "USTAR")],
+        fetch_max = (
+          fpt_KL15$fetch_max$X_max ^ 2 + fpt_KL15$fetch_max$Y_max ^ 2) ^ 0.5,
+        fetch_crop_contour = get_extent(
+          x.ls = fpt_KL15$xr[[length(target.contour)]],
+          y.ls = fpt_KL15$yr[[length(target.contour)]],
+          scal.coeff = 1)[1],
+        ## handling footprint-weighted land cover percentages
+        fpt_weight_control = NA,
+        fpt_weight_treatment = raster::cellStats(raster::crop(wgt.shp,
+                                                              shp.comb1[1,],
+                                                              snap = "in"),
+                                                 function(i, ...)
+                                                   sum(i, na.rm = T))#,
+        # fpt_weight_wetland1 = raster::cellStats(raster::crop(wgt.shp,
+        #                                                      shp.comb1[2,],
+        #                                                      snap = "in"),
+        #                                         function(i, ...)
+        #                                           sum(i, na.rm = T)),
+        # fpt_weight_wetland2 = raster::cellStats(raster::crop(wgt.shp,
+        #                                                      shp.comb1[3,],
+        #                                                      snap = "in"),
+        #                                         function(i, ...)
+        #                                           sum(i, na.rm = T))
+      )
+    )
+  }
+}
+
+## calculate control area as residual of all other land types
+    valid.fpt.ls$fpt_weight_control <-
+      1 - valid.fpt.ls$fpt_weight_treatment 
+
+    valid.fpt.ls$fpt_weight_control <-
+      ifelse(valid.fpt.ls$fpt_weight_control < 0,
+             0,
+             valid.fpt.ls$fpt_weight_control)
+
+```
+
+### Prepare outputs
+Three types of files are output: 1) 5 shape files for all half-hourly footprint contours (50%-80%), 2) 1 geo-tiff (stack) for all half-hourly footprint weights, 3) a csv file containing basic information for all half-hourly footprints. 
+
+```{r include=T, echo=T}
+#### compile a raster stack with all 30-min footprint weight maps
+if(output.tiff){
+  
+  wgt.shp.stack <-
+    wgt.shp.stack[which(lapply(wgt.shp.stack, length) > 0)]
+  wgt.shp.stack <- raster::stack(wgt.shp.stack)
+  
+  ## output footprint weight raster stacks
+  raster::writeRaster(
+    wgt.shp.stack,
+    paste0(outDir, ver, "\\", case, "_", target.mon, "_fpt_weight.tif"),
+    format = "GTiff",
+    overwrite = TRUE
+  )
+  
+}
+
+#### compile shape files for all 30-min footprint contours, separated by percentages
+fpt.shp.all80 <-
+  fpt.shp.all80[which(lapply(fpt.shp.all80, length) > 0)]
+fpt.shp.all80 <-
+  sp::SpatialPolygons(fpt.shp.all80, proj4string = CRS("+proj=longlat +datum=WGS84"))
+fpt.shp.all70 <-
+  fpt.shp.all70[which(lapply(fpt.shp.all70, length) > 0)]
+fpt.shp.all70 <-
+  sp::SpatialPolygons(fpt.shp.all70, proj4string = CRS("+proj=longlat +datum=WGS84"))
+fpt.shp.all60 <-
+  fpt.shp.all60[which(lapply(fpt.shp.all60, length) > 0)]
+fpt.shp.all60 <-
+  sp::SpatialPolygons(fpt.shp.all60, proj4string = CRS("+proj=longlat +datum=WGS84"))
+fpt.shp.all50 <-
+  fpt.shp.all50[which(lapply(fpt.shp.all50, length) > 0)]
+fpt.shp.all50 <-
+  sp::SpatialPolygons(fpt.shp.all50, proj4string = CRS("+proj=longlat +datum=WGS84"))
+#fpt.shp.all<-clgeo_Clean(fpt.shp.all)
+
+## convert into spatial polygon data frame for output
+df <- data.frame(ID = character(), stringsAsFactors = FALSE)
+for (i in fpt.shp.all80@polygons) {
+  df <- rbind(df, data.frame(ID = i@ID, stringsAsFactors = FALSE))
+}
+row.names(df) <- df$ID
+
+fpt.shp.all80.df <- sp::SpatialPolygonsDataFrame(fpt.shp.all80, data = df)
+fpt.shp.all70.df <- sp::SpatialPolygonsDataFrame(fpt.shp.all70, data = df)
+fpt.shp.all60.df <- sp::SpatialPolygonsDataFrame(fpt.shp.all60, data = df)
+fpt.shp.all50.df <- sp::SpatialPolygonsDataFrame(fpt.shp.all50, data = df)
+
+# if(output.shp){
+#   ### remove any pre-existing shape files before writing new ones
+#   if (dir.exists(paste(outDir, ver, "\\", case, "_", target.mon, "_80per_contour", sep =
+#                        ""))) {
+#     unlink(paste0(outDir, ver, "\\", case, "_", target.mon, "_80per_contour"),
+#            recursive = TRUE
+#     )
+#   }
+#   if (dir.exists(paste(outDir, ver, "\\", case, "_", target.mon, "_70per_contour", sep =
+#                        ""))) {
+#     unlink(paste0(outDir, ver, "\\", case, "_", target.mon, "_70per_contour"),
+#            recursive = TRUE
+#     )
+#   }
+#   if (dir.exists(paste(outDir, ver, "\\", case, "_", target.mon, "_60per_contour", sep =
+#                        ""))) {
+#     unlink(paste0(outDir, ver, "\\", case, "_", target.mon, "_60per_contour"),
+#            recursive = TRUE
+#     )
+#   }
+#   if (dir.exists(paste(outDir, ver, "\\", case, "_", target.mon, "_50per_contour", sep =
+#                        ""))) {
+#     unlink(paste0(outDir, ver, "\\", case, "_", target.mon, "_50per_contour"),
+#            recursive = TRUE
+#     )
+#   }
+#   
+#   ## prepare outputs shape files
+#   rgdal::writeOGR(
+#     fpt.shp.all80.df,
+#     paste0(outDir, ver, "\\", case, "_", target.mon, "_80per_contour"),
+#     layer = c("fpt_climatology"),
+#     driver = "ESRI Shapefile"
+#   )
+#   ## prepare outputs shape files
+#   rgdal::writeOGR(
+#     fpt.shp.all70.df,
+#     paste0(outDir, ver, "\\", case, "_", target.mon, "_70per_contour"),
+#     layer = c("fpt_climatology"),
+#     driver = "ESRI Shapefile"
+#   )
+#   ## prepare outputs shape files
+#   rgdal::writeOGR(
+#     fpt.shp.all60.df,
+#     paste0(outDir, ver, "\\", case, "_", target.mon, "_60per_contour"),
+#     layer = c("fpt_climatology"),
+#     driver = "ESRI Shapefile"
+#   )
+#   ## prepare outputs shape files
+#   rgdal::writeOGR(
+#     fpt.shp.all50.df,
+#     paste0(outDir, ver, "\\", case, "_", target.mon, "_50per_contour"),
+#     layer = c("fpt_climatology"),
+#     driver = "ESRI Shapefile"
+#   )
+#   
+# }
+
+## output a list of all valid footprints, with selected info
+write.csv(
+  valid.fpt.ls,
+  paste0(outDir, ver, "\\", case, "_", target.mon, "_fpt_valid_list.csv"),
+  row.names = F
+)
+
+## get a list of outputs
+list.files(paste0(outDir, ver, "\\"))[grep(case, list.files(paste0(outDir, ver, "\\")))]
+
+```
+
+### Prepare footprint map plots
+Two footprint maps are generated: 1) a map with all half-hourly footprints, 2) a map with 3 selected representative half-hourly footprints. Use select.example to define examples.
+
+```{r include=TRUE, echo=T, fig.width = 7, warning = FALSE, dev = "svg"}
+
+if (plot.fpt) {
+  #### plot all footprint contours on a Google map
+  suppressMessages((
+    fpt.map1 <- footprint_plot_v6(
+      fpt.shp.comb = fpt.shp.all80.df,                                  ## footprint contours shape files
+      shp.comb1 = shp.comb1,                                            ## control/treatment areas shape files
+      #shp.comb2 = shp.comb2,
+      longitude = longitude,                                            ## tower location
+      latitude = latitude,                                              ## tower location
+      basemap = concord_tower,                                                ## background map  
+      dist.target = 300,                                   ## target extent (m) for output map
+      map.comment = paste0(case, " ", target.mon, " 80% footprint"),    ## short comment used in map title
+      map.comment.short = paste0(case, "_", target.mon, "_footprint"),  ## short comment used in map file name
+      path.out = paste0(outDir, "\\", ver, "\\")                        ## output directory  
+    )
+  ))
+  
+  #### plot selected 30-min footprints on a Google map
+  ## create a index for selecting footprints
+  select.example <-
+    c(
+      which(valid.fpt.ls$WD > 160 & valid.fpt.ls$WD < 209)[1],
+      #which(valid.fpt.ls$WD > 260 & valid.fpt.ls$WD < 290)[2],
+      which(valid.fpt.ls$WD > 350 | valid.fpt.ls$WD < 45)[2]
+    )
+  
+  print(valid.fpt.ls$TIMESTAMP[select.example])
+  print(valid.fpt.ls$WD[select.example])
+  
+  fpt.shp.all.df.example <- rbind(
+    fpt.shp.all50.df[select.example, ],
+    fpt.shp.all60.df[select.example, ],
+    fpt.shp.all70.df[select.example, ],
+    fpt.shp.all80.df[select.example, ]
+  )
+  
+  suppressMessages((
+    fpt.map2 <- footprint_plot_v6(
+      fpt.shp.comb = fpt.shp.all.df.example,
+      shp.comb1 = shp.comb1,
+      longitude = longitude,
+      latitude = latitude,
+      basemap = concord_tower,
+      dist.target = 300,
+      map.comment = "Selected examples",
+      map.comment.short = paste0(case, "_", target.mon, "_example_footprint"),
+      path.out = paste0(outDir, "\\", ver, "\\")
+    )
+  ))
+  
+  plot(fpt.map1)
+  plot(fpt.map2)
+  
+}
+```
+

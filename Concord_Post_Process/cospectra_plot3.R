@@ -1,0 +1,66 @@
+cospectra_plot3<-function(cspec.data.pre,
+                          target.var,
+                          case,
+                          year,
+                          doy.i,
+                          doy.f,
+                          output=F,
+                          outDir,
+                          plot.loess=F,
+                          postfix="",
+                          log.y.value=F,
+                          zL.cut.rng){
+  
+  source("sgl_spec_plot.R")  ## this function does each single plot
+  source("spec_mdl.R")  ## this function provides theoretical/modeled spectrum shape
+  
+  spec_mdl_line<-spec_mdl(target.spec = target.var)
+  
+  if(output){
+    png(paste(outDir,"\\",case,"_",year,"_",doy.i,"_",
+              doy.f,"_",target.var,"_spectra_plot",
+              postfix,".png",sep=""),
+        height=9,width=4.5,
+        res=300,units="in",pointsize=12)
+  }
+  par(mfrow=c(3,1),mar=c(0.5,0,0,0),oma=c(4.5,5,2.5,1))  
+  
+  sgl_spec_plot(data.in=cspec.data.pre,
+                target.var=target.var,
+                zL.rng.i=zL.cut.rng[1],zL.rng.f=zL.cut.rng[2],
+                x.rng.i=-4,x.rng.f=2,
+                y.rng.i=NA,y.rng.f=1,
+                plot.text=ifelse(!is.na(zL.cut.rng[1]),paste(zL.cut.rng[1],"< z/L <",zL.cut.rng[2]),paste("z/L <",zL.cut.rng[2])),
+                plot.x.axis=F,
+                plot.loess=plot.loess,
+                log.y.value=log.y.value)
+  lines(spec_mdl_line[[1]]$log.f,spec_mdl_line[[1]]$log.mdl1,col="green")
+  
+  sgl_spec_plot(data.in=cspec.data.pre,
+                target.var=target.var,
+                zL.rng.i=zL.cut.rng[2],zL.rng.f=zL.cut.rng[3],
+                x.rng.i=-4,x.rng.f=2,
+                y.rng.i=NA,y.rng.f=1,
+                plot.text=paste(zL.cut.rng[2],"< z/L <",zL.cut.rng[3]),
+                plot.x.axis=F,
+                plot.loess=plot.loess,
+                log.y.value=log.y.value)
+  lines(spec_mdl_line[[1]]$log.f,spec_mdl_line[[1]]$log.mdl1,col="green")
+  
+  sgl_spec_plot(data.in=cspec.data.pre,
+                target.var=target.var,
+                zL.rng.i=zL.cut.rng[3],zL.rng.f=zL.cut.rng[4],
+                x.rng.i=-4,x.rng.f=2,
+                y.rng.i=NA,y.rng.f=1,
+                plot.text=ifelse(!is.na(zL.cut.rng[4]),paste(zL.cut.rng[3],"< z/L <",zL.cut.rng[4]),paste(zL.cut.rng[3],"< z/L")),
+                plot.x.axis=T,
+                plot.loess=plot.loess,
+                log.y.value=log.y.value)
+  lines(spec_mdl_line[[1]]$log.f,spec_mdl_line[[1]]$log.mdl1,col="green")
+  
+  mtext(side=3,paste(case,year,"DOY:",doy.i,"-",doy.f),adj=c(0.5),outer=T,line=0.5,cex=1)
+  
+  if(output){
+    dev.off()
+  }
+}

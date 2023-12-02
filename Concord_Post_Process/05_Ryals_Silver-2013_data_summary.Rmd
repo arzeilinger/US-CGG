@@ -1,0 +1,154 @@
+---
+title: "Ryals and Silver 2013 data"
+output: html_notebook
+---
+
+
+
+```{r setup, include = FALSE}
+
+rm(list = ls())
+
+knitr::opts_chunk$set(echo = TRUE, dev = 'pdf')
+
+workDir <- "C:\\Users\\tfens\\R_REPOS\\Flux_processing\\Concord_R_Code\\Concord_Post_Process\\"
+```
+
+Set working directory as **workDir**, with associated sub-directories as follows: 
+
+* data\ source files for data we are analyzing 
+  + Master
+  
+* R\ main workflow and required functions
+  
+* output\ include following outputs for 
+  +  TBD
+  
+  
+```{r}
+library(tidyverse)
+library(lme4)
+library(car)
+library(MASS)
+library(RVAideMemoire)
+
+library(ggradar)
+library(dplyr)
+library(scales)
+library(tibble)
+library(vegan)
+library(permute)
+library(lattice)
+library(plyr)
+library(ggplot2)
+
+
+
+library(magrittr)
+
+library(ggpubr)
+library(ggfortify)
+library(micompr)
+library(npmv)
+library(MVN)
+library(biotools)
+library(rstatix)
+
+library(coin)
+library(multcomp)
+
+library(emmeans)
+
+library(PMCMR) #old version of PMCMRplus
+library(lmerTest)
+
+library(PMCMRplus) #for doing non-parametric multiple comparisons
+
+library(ggradar)
+```
+  
+```{r include = T}
+dataDir <- paste0(workDir, "01_data\\02_Ryals_Silver\\")
+outDir <- paste0(workDir, "02_output\\05_Ryals_Silver\\")
+rDir <- paste0(workDir, "R\\")
+```
+
+
+```{r}
+SE <- function(x, na.rm=FALSE) {
+  if (na.rm) x <- na.omit(x)
+  sqrt(var(x)/length(x))
+}
+```
+
+
+
+```{r include=T, echo=T}
+file.ls <-("ryals_silver_2013_data.csv")
+
+ryals_silver.data <- read.csv(paste0(dataDir, file.ls, sep = ""),
+                             header = TRUE,
+                             stringsAsFactors= F)
+ryals_silver.data
+
+
+
+```
+
+#Creating NEE column
+
+#NEE = NPP - heterotrophic respiration
+
+#add conversion to MT C/ha
+```{r}
+#Annual NPP - total soil respiration
+ryals_silver.data$NEE_as_NPP_minus_tot_resp <- ryals_silver.data$Annual.NPP- ryals_silver.data$Annual.total.soil.respiration
+
+ryals_silver.data$Rh_30 <- ryals_silver.data$Annual.total.soil.respiration *0.30
+
+ryals_silver.data$Rh_50 <- ryals_silver.data$Annual.total.soil.respiration*0.5
+
+ryals_silver.data$Rh_60 <- ryals_silver.data$Annual.total.soil.respiration*0.6
+
+ryals_silver.data
+```
+
+
+```{r}
+
+#Ryals Silver Data by treatment
+data.treatment <- ryals_silver.data %>%
+  mutate_if(is.character, factor) %>%
+  group_by(Treatment) %>%
+  summarise_if(is.numeric, list( mean = mean, SE = SE ), na.rm = TRUE)
+
+    
+data.treatment
+
+write.csv(
+  data.treatment,
+          paste0(outDir, "\\",Sys.Date(),"_Ryals_Mean_SE_by_treatment.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+###########################################
+
+#Ryals Silver Data by treatment and water year
+data.treatment_wy <- ryals_silver.data %>%
+  mutate_if(is.character, factor) %>%
+  group_by(Treatment, Water.year) %>%
+  summarise_if(is.numeric, list( mean = mean, SE = SE ), na.rm = TRUE)
+
+    
+data.treatment_wy
+
+write.csv(
+  data.treatment_wy,
+          paste0(outDir, "\\",Sys.Date(),"_Ryals_Mean_SE_by_treatment_WY.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+
+
+```
+

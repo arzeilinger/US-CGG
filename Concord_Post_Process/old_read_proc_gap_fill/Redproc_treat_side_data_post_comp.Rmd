@@ -1,0 +1,395 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+
+library(REddyProc)
+library(dplyr)
+library(bigleaf)
+```
+
+
+## change to local dir
+```{r}
+
+root.ditr<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+data.dir<-paste0(root.ditr,"04_Reddy_Proc_data\\") ##  2021-04-19_reddy_proc.txt locate
+out.dir<-paste0(root.ditr,"13_treat_side_gap_fill_data\\") ## store all output figures/files
+
+flux.var <- c('NEE', 'h2o_flux', 'LE', 'H')
+met.var <- c('Rg', 'Tair', 'Tsoil', 'VPD', 'Ustar', 'rH')
+
+
+# ## change root.path as needed
+# root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+# #root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord\\"
+# 
+# combined.path<-paste0(root.path,"03_combined_data\\") ## this is where the combined data lives
+# 
+# 
+# path.in_CIMIS<-paste0(root.path,"05_CIMIS_Data\\")
+#  ver<-"cimis_data" 
+# 
+# # hc: Use this for storing combined file
+# path.out<-paste(root.path,"06_CIMIS_gap_fill\\",sep="")
+
+
+```
+
+# REddyProc typical workflow
+```{r}
+####################################################################################
+
+#+++ Load data with 1 header and 1 unit row from (tab-delimited) text file
+fileName <- "2021-07-08_post_compost_treat_reddy_proc.txt"
+EddyData <- fLoadTXTIntoDataframe(fileName,Dir = data.dir)
+
+head(EddyData)
+
+tail(EddyData)
+
+
+```
+
+
+```{r}
+#+++ Replace long runs (repeated constants) of flux variables by NA
+EddyData <- filterLongRuns(EddyData, flux.var)
+```
+
+
+#gettting in timestamp format
+```{r}
+EddyData$TIMESTAMP<-strptime(paste(EddyData$TIMESTAMP,EddyData$Hour,sep=" "),
+                          format="%m/%d/%Y %H:%M", 
+                          tz = "Etc/GMT-8")
+
+EddyDataWithPosix <-EddyData
+
+EddyDataWithPosix$Hour<-NULL
+
+head(EddyDataWithPosix)
+
+
+head(EddyDataWithPosix$TIMESTAMP)
+tail(EddyDataWithPosix$TIMESTAMP)
+
+
+EddyDataWithPosix
+```
+
+#calculating VPD
+```{r}
+
+EddyDataWithPosix$VPD<-rH.to.VPD(EddyDataWithPosix$rH/100, EddyDataWithPosix$Tair, Esat.formula = c("Sonntag_1990", "Alduchov_1996",
+  "Allen_1998"), constants = bigleaf.constants())
+
+EddyDataWithPosix
+
+```
+
+#+++ Initalize R5 reference class sEddyProc for post-processing of eddy data
+#+++ with the variables needed for post-processing later
+
+```{r}
+
+EProc <- sEddyProc$new('Concord',
+                       Data = EddyDataWithPosix,
+                       ColNames = c(flux.var,met.var),
+                       ColPOSIXTime = 'TIMESTAMP',
+                       LatDeg = 37.93799591, LongDeg = -121.9761047, TimeZoneHour = -7)
+
+# Lat/long and time zone to compute sunrise and sunset, used to differentiate daytime/nighttime.
+EProc$sSetLocationInfo(LatDeg = 37.93799591, LongDeg = -121.9761047, TimeZoneHour = -7)
+```
+
+#plotting flux variables before gapfilling
+```{r}
+## plot flux variables before gap-filling 
+for(i in 1:length(flux.var)){
+
+  EProc$sPlotDiurnalCycle(flux.var[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(flux.var[i],
+                      Dir = out.dir)
+  
+}
+
+```
+
+```{r}
+
+## plot met variables before gap-filling 
+for(i in 1:length(met.var)){
+
+  EProc$sPlotDiurnalCycle(met.var[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(met.var[i],
+                      Dir = out.dir)
+  
+}
+
+```
+
+
+###### NEE processing
+#### Ustar threshold determination; moving-point-transition (MP) 
+#    described originally by Reichstein et al.2005 and Papale et al.2006
+#    include bootstrapping to get a distribution of possible ustar thresholds
+```{r}
+EProc$sEstimateUstarScenarios(
+    nSample = 100L, probs = c(0.05, 0.5, 0.95))## 5th, 50th, 95th precentiles of ustar thresholds
+
+
+```
+
+# inspect the thresholds to be used by default
+```{r}
+# inspect the thresholds to be used by default
+EProc$sGetEstimatedUstarThresholdDistribution()
+EProc$sGetUstarScenarios()
+```
+
+#Latent and sensible heat
+```{r}
+#################################################################################################
+###### LE and H processing
+#### Gap fill variable with specified variables and limits (change as needed)
+#    Marginal distribution sampling method by Reichstein et al.2005
+#    It loops through gaps, and fill them iteratively by diff environmental condition, window size 
+EProc$sMDSGapFill(Var = 'LE',
+                  V1 = 'Rg', T1 = 30,   ## 'Rg' within +/-30 W m-2
+                  V2 = 'VPD', T2 = 0.5,   ## 'VPD' within +/-0.5 kPa)
+                  FillAll = TRUE)   
+
+EProc$sMDSGapFill(Var = 'H',
+                  V1 = 'Rg', T1 = 30,   ## 'Rg' within +/-30 W m-2
+                  V2 = 'Tair', T2 = 2,  ## 'Tair' within +/-2 degC 
+                  FillAll = TRUE)  
+
+
+
+
+
+
+
+
+
+
+```
+#plotting sensible and latent heat
+```{r}
+
+
+# plot flux variables after gap-filling
+for(i in 3:length(flux.var)){
+
+  EProc$sPlotDiurnalCycle(paste0(flux.var[i],"_f"),
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(paste0(flux.var[i],"_f"),
+                      Dir = out.dir)
+
+}
+
+```
+
+```{r}
+#### Gap fill variable with specified variables and limits (change as needed)
+#    Marginal distribution sampling method by Reichstein et al.2005
+#    It loops through gaps, and fill them iteratively by diff environmental condition, window size 
+EProc$sMDSGapFillUStarScens('NEE',
+                            V1 = 'Rg', T1 = 30, ## 'Rg' within +/-30 W m-2
+                            V2 = 'Tair', T2 = 2,  ## 'Tair' within +/-2 degC
+                            V3 = 'VPD', T3 = 0.5,   ## 'VPD' within +/-0.5 kPa
+                            FillAll = TRUE)
+
+```
+
+#plotting NEE after gapfilling
+```{r}
+# get a list of gap-filled NEE, based on diff ustar thresholds
+flux.gf.var <- grep("NEE_.*_f$",names(EProc$sExportResults()), value = TRUE)
+
+for(i in 1:length(flux.gf.var)){
+  
+  EProc$sPlotDiurnalCycle(flux.gf.var[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(flux.gf.var[i],
+                      Dir = out.dir)
+  
+}
+
+```
+
+#h20flux gap filling
+```{r}
+#### Gap fill variable with specified variables and limits (change as needed)
+#    Marginal distribution sampling method by Reichstein et al.2005
+#    It loops through gaps, and fill them iteratively by diff environmental condition, window size 
+EProc$sMDSGapFillUStarScens('h2o_flux',
+                            V1 = 'Rg', T1 = 30, ## 'Rg' within +/-30 W m-2
+                            V2 = 'Tair', T2 = 2,  ## 'Tair' within +/-2 degC
+                            V3 = 'VPD', T3 = 0.5,   ## 'VPD' within +/-0.5 kPa
+                            FillAll = TRUE)
+```
+
+#plotting h20_flux
+```{r}
+# get a list of gap-filled h2o_flux, based on diff ustar thresholds
+flux.gf.var <- grep("h2o_flux_.*_f$",names(EProc$sExportResults()), value = TRUE)
+
+for(i in 1:length(flux.gf.var)){
+  
+  EProc$sPlotDiurnalCycle(flux.gf.var[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(flux.gf.var[i],
+                      Dir = out.dir)
+  
+}
+```
+
+
+
+
+
+
+#For each of the different u∗ threshold estimates a separate set of output columns of filled NEE and its uncertainty is generated, distinguished by the suffixes given with uStarSuffixes. "_f" denotes the filled value and "_fsd" the estimated standard deviation of its uncertainty.
+```{r}
+grep("NEE_.*_f$",names(EProc$sExportResults()), value = TRUE)
+grep("NEE_.*_fsd$",names(EProc$sExportResults()), value = TRUE)
+```
+
+#Sensible Heat
+```{r}
+grep("H_.*_f$",names(EProc$sExportResults()), value = TRUE)
+grep("H_.*_fsd$",names(EProc$sExportResults()), value = TRUE)
+```
+
+#Latent Heat
+
+```{r}
+grep("LE_.*_f$",names(EProc$sExportResults()), value = TRUE)
+grep("LE_.*_fsd$",names(EProc$sExportResults()), value = TRUE)
+```
+
+##################################################################################################
+######  Partitioning NEE into GPP and Reco
+####    Two approaches: 1) nighttime-based (Reichstein et al.2005)
+#                       2) daytime-based (Lasslop et al. 2010)
+
+
+```{r}
+# while these variables don't needed gap-filling, the following partition functions need qc flags for these met variables 
+EProc$sMDSGapFill('Tair', FillAll = FALSE,  minNWarnRunLength = NA)   
+EProc$sMDSGapFill('Rg', FillAll = FALSE, minNWarnRunLength = NA)
+EProc$sMDSGapFill('VPD', FillAll = FALSE,  minNWarnRunLength = NA) 
+```
+
+```{r}
+## Nighttime-based approach, partition all NEEs (e.g., NEE_ustar,NEE_U50,...) to corresponding GPP/RECO 
+EProc$sMRFluxPartitionUStarScens(TempVar = 'Tair') # specify which temperature to use for building respiration model
+
+```
+#Nighttime 
+```{r}
+# get a list of Reco and GPP_f by the respective ustar thresholds
+
+grep("GPP.*_f$|Reco",names(EProc$sExportResults()), value = TRUE)
+
+gppreco.var.nt <- grep("GPP.*_f$|Reco.*",names(EProc$sExportResults()), value = TRUE)
+#gppreco.var.nt <- gppreco.var.nt[-which(grepl("_SD",gppreco.var.nt))]
+
+for(i in 1:length(gppreco.var.nt)){
+  
+  EProc$sPlotDiurnalCycle(gppreco.var.nt[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(gppreco.var.nt[i],
+                      Dir = out.dir)
+  
+}
+```
+
+```{r}
+## Daytime-based approach, partition all NEEs (e.g., NEE_ustar,NEE_U50,...) to corresponding GPP/RECO 
+#   two versions present: 1) sGLFluxPartitionUStarScens, based on original Lasslop 2010
+#                         2) sTKFluxPartitionUStarScens, based on a modified version in Keenan 2019
+#   note: this method takes long time & breaks sometimes, the argument 'uStarScenKeep' specify which 
+#         ustar version should run to save time
+
+#EProc$sGLFluxPartitionUStarScens(uStarScenKeep = "U50")
+EProc$sTKFluxPartitionUStarScens(uStarScenKeep = "U50")
+
+# get a list of Reco and GPP_f by the respective ustar thresholds
+gppreco.var.dt <- grep("GPP_DT|Reco_DT",names(EProc$sExportResults()), value = TRUE)
+gppreco.var.dt <- gppreco.var.dt[-which(grepl("_SD",gppreco.var.dt))]
+
+for(i in 1:length(gppreco.var.dt)){
+  
+  EProc$sPlotDiurnalCycle(gppreco.var.dt[i],
+                          Dir = out.dir)
+  EProc$sPlotHHFluxes(gppreco.var.dt[i],
+                      Dir = out.dir)
+  
+}
+
+```
+#Estimating the uncertainty of aggregated results
+#The results of the different u∗ threshold scenarios can be used for estimating the uncertainty due to not knowing the threshold.
+
+#First, the mean of the GPP across all the year is computed for each u∗-scenario and converted from μmolCO2m−2s−1 to gCm−2yr−1.
+
+
+```{r}
+FilledEddyData <- EProc$sExportResults()
+uStarSuffixes <- colnames(EProc$sGetUstarScenarios())[-1]
+#suffix <- uStarSuffixes[2]
+GPPAggCO2 <- sapply( uStarSuffixes, function(suffix) {
+    GPPHalfHour <- FilledEddyData[[paste0("GPP_",suffix,"_f")]]
+    mean(GPPHalfHour, na.rm = TRUE)
+})
+molarMass <- 12.011
+GPPAgg <- GPPAggCO2 * 1e-6 * molarMass * 3600*24*365.25
+print(GPPAgg)
+
+
+```
+
+#The difference between those aggregated values is a first estimate of uncertainty range in GPP due to uncertainty of the u∗ threshold.
+```{r}
+(max(GPPAgg) - min(GPPAgg)) / median(GPPAgg) 
+```
+
+
+#For a better but more time consuming uncertainty estimate, specify a larger sample of u∗ threshold values, for each repeat the post-processing, and compute statistics from the larger sample of resulting GPP columns. This can be achieved by specifying a larger sequence of quantiles when calling sEstimateUstarScenarios in place of the command shown above.
+
+```{r}
+EProc$sEstimateUstarScenarios( 
+  nSample = 200, probs = seq(0.025,0.975,length.out = 39) )
+```
+
+#exporting the data
+```{r}
+###############################################################################################################
+# Storing the results in a csv-file
+# The results still reside inside the sEddyProc class. We first export them to an R Data.frame, append the
+# columns to the original input data, and write this data.frame to text file in a temporary directory.
+
+FilledEddyData <- EProc$sExportResults()
+CombinedData <- cbind(EddyData, FilledEddyData)
+
+fWriteDataframeToFile(CombinedData,
+                      'Concord_2019-2020.txt',
+                      Dir = out.dir)
+
+write.csv(CombinedData,
+          paste(out.dir,Sys.Date(),"_gap_fill_treat_combo_Concord.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+

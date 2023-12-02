@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1588381925878.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2844439796",
+    "id" : "38A4AA51",
+    "lastKnownWriteTime" : 1588349517,
+    "last_content_update" : 1588349517,
+    "path" : "C:/Users/Tommy/R/Concord/Concord_Post_Process/concord_filter.R",
+    "project_path" : "concord_filter.R",
+    "properties" : {
+        "cursorPosition" : "6,17",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 4,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

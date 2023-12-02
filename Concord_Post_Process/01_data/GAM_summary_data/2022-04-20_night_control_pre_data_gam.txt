@@ -1,0 +1,29 @@
+
+Family: gaussian 
+Link function: identity 
+
+Formula:
+NEE ~ s(sin_Doy_water, k = 30) + s(cos_Doy_water, k = 30) + s(Tsoil_15cm, 
+    k = 30) + s(Tair, k = 30) + s(VWC, k = 30) + s(Tair, VWC, 
+    k = 30) + s(Tsoil_15cm, VWC, k = 30)
+
+Parametric coefficients:
+            Estimate Std. Error t value Pr(>|t|)    
+(Intercept)   3.0035     0.1238   24.25   <2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Approximate significance of smooth terms:
+                        edf Ref.df     F p-value   
+s(sin_Doy_water)  3.062e+00  3.686 2.647 0.03693 * 
+s(cos_Doy_water)  1.000e+00  1.000 1.473 0.22596   
+s(Tsoil_15cm)     2.416e+00  3.111 5.178 0.00153 **
+s(Tair)           1.000e+00  1.000 0.545 0.46111   
+s(VWC)            1.304e+00  1.505 0.110 0.78884   
+s(Tair,VWC)       5.008e-05 27.000 0.000 0.82181   
+s(Tsoil_15cm,VWC) 2.277e-05 27.000 0.000 0.30449   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+R-sq.(adj) =   0.14   Deviance explained = 16.5%
+-REML = 649.53  Scale est. = 4.5388    n = 296

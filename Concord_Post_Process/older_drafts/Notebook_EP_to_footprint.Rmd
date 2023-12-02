@@ -1,0 +1,230 @@
+---
+title: "Getting Data Ready for Kljun Footprint Model"
+author: "Thomas_Fenster"
+date: "October, 2019"
+output:
+  html_notebook: default
+  word_document: default
+---
+
+# Read in EddyPro full output file, reformat and select #
+
+**needed variables for online Kljun footprint model**
+
+# Lists #
+```{r}
+rm(list=ls())
+
+library(dplyr)
+```
+
+
+# Defining the data I/O directory #
+**"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\master_eddy_pro_concord.csv"**
+```{r}
+path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in<-paste(path,"01_Proccessed_Data",sep="")
+path.out<-paste(path,"02_Footprint_Analysis",sep="")
+ver<-"Master_Eddy" 
+file.name<-paste("master_eddy_pro_concord",sep="")
+```
+
+# read in eddypro full output file, parse variable names #
+```{r}
+data.in<-read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+                  header=F,
+                  skip=3,
+                  na.strings=c("-9999.0"),
+                  stringsAsFactors = F)
+colnames(data.in)<-colnames(
+  read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+           header=T,
+           skip=1))
+data.in
+```
+
+# Parsing the time stamp #
+```{r}
+data.in$TIMESTAMP<-strptime(paste(data.in$date,data.in$time,sep=" "),format="%m/%d/%Y %H:%M", tz = "GMT")
+
+data.in$TIMESTAMP[1:10]
+```
+
+# filter ustar based on qc_Tau. #
+**Filtering out all qc_Tau = 2**
+```{r}
+data.in$u.[!is.na(data.in$qc_Tau)&data.in$qc_Tau==2]<-NA
+```
+
+# prepare file format for Kljun Online footprint model 
+#If you just need to create an overall footprint, not seperated by night or day time or wind direction you can stop here. 
+```{r}
+data.fpt<-data.frame(yyyy=data.in$TIMESTAMP$year+1900,
+                     mm=data.in$TIMESTAMP$mon+1,
+                     day=data.in$TIMESTAMP$mday,
+                     HH=floor(data.in$TIMESTAMP$hour),
+                     MM=data.in$TIMESTAMP$min,
+                     zm=3.67,  ## measurement height (m)
+                     d=0,      ## displacement height (m)
+                     z0=0.05,  ## roughness length (m)
+                     u_mean=data.in$wind_speed,  ## wind speed
+                     L=data.in$L,    ## Monin-Obukov length (m)
+                     sigma_v=sqrt(data.in$v_var),  ## cross-wind standard deviation (m/s)
+                     u_star=data.in$u.,  ## frisction velocity (m/s)
+                     wind_dir=data.in$wind_dir)  ## wind direction
+
+data.fpt<-na.omit(data.fpt)
+
+write.csv(data.fpt,
+          paste(path.out,ver,"_fpt_short.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+#created a csv spreadsheet for a klujn footprint model that has a column for night time and day time
+#Before uploading to the online model be sure to delete the daytime column! Will not run if you keep it. 
+```{r}
+data.fpt.time_of_day<-data.frame(yyyy=data.in$TIMESTAMP$year+1900,
+                     mm=data.in$TIMESTAMP$mon+1,
+                     day=data.in$TIMESTAMP$mday,
+                     HH=floor(data.in$TIMESTAMP$hour),
+                     MM=data.in$TIMESTAMP$min,
+                     daytime=data.in$daytime,
+                     zm=3.67,  ## measurement height (m)
+                     d=0,      ## displacement height (m)
+                     z0=0.05,  ## roughness length (m)
+                     u_mean=data.in$wind_speed,  ## wind speed
+                     L=data.in$L,    ## Monin-Obukov length (m)
+                     sigma_v=sqrt(data.in$v_var),  ## cross-wind standard deviation (m/s)
+                     u_star=data.in$u.,  ## frisction velocity (m/s)
+                     wind_dir=data.in$wind_dir)  ## wind direction
+
+data.fpt.time_of_day<-na.omit(data.fpt.time_of_day)
+
+write.csv(data.fpt.time_of_day,
+          paste(path.out,ver,"_time_of_day_fpt_1_short.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+
+#CSV of of day and night treatment and control areas
+#tried increasing control to 235 but lose 1/6 of data. Reduced Treatment to 215. 
+#Don't lose too much data and get a nicer seperation. 
+```{r}
+control_overall.fpt <- data.fpt %>%  filter(wind_dir >= 230 &
+                              wind_dir <= 300)
+
+treatment_overall.fpt <- data.fpt%>% filter( wind_dir >= 150 & wind_dir <= 215)
+
+
+########creating CSVs#############################################
+write.csv(control_overall.fpt ,
+          paste(path.out,ver,"control_overall_fpt.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+write.csv(treatment_overall.fpt ,
+          paste(path.out,ver,"treatment_215_overall_fpt.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+
+
+# filter and created a nighttime only csv for the footprint model#
+```{r}
+
+
+
+##########################creating just the night time######################### 
+
+night_footprint<-data.fpt.time_of_day %>% filter(daytime == "0")
+
+#night_time_footprint control
+night_footprint_control <- night_footprint %>% filter(wind_dir >= 230 &
+                              wind_dir <= 300)
+
+
+#nigh_time_footprint treatment
+night_footprint_treatment <- night_footprint %>% filter( wind_dir >= 150 & wind_dir <= 215)
+
+
+######################creating CSV of nighttime overall, treatment,  and control footprints#######
+
+
+# #overall footrpint night time
+# write.csv(night_footprint, #
+#           paste(path.out,ver,"night_fpt_overall.csv",sep=""),
+#           quote = T,
+#           row.names = F)
+
+
+#control night
+write.csv(night_footprint_control, #
+          paste(path.out,ver,"night_fpt_control.csv",sep=""),
+          quote = T,
+          row.names = F)
+#treatment night
+write.csv(night_footprint_treatment,
+          paste(path.out,ver,"night_fpt_treatment.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+
+
+```
+
+
+
+# filter by daytime and night time. and created a daytime only csv for the footprint model#
+
+```{r}
+
+
+
+
+######################################################
+#daytime overall footprint
+day_footprint<-data.fpt.time_of_day %>% filter(daytime == "1")
+
+#day_time_footprint control
+day_footprint_control <- day_footprint %>% 
+  filter(wind_dir >= 230 &
+                              wind_dir <= 300)
+
+
+#day_time_footprint treatment
+day_footprint_treatment <- day_footprint %>% 
+  filter( wind_dir >= 150 &
+                            wind_dir <= 215)
+
+##############################################creating CSV's######################
+
+# #overall day foot print
+# write.csv(day_footprint,
+#           paste(path.out,ver,"day_fpt_overall.csv",sep=""),
+#           quote = T,
+#           row.names = F)
+
+
+
+#control day
+write.csv(day_footprint_control, #
+          paste(path.out,ver,"day_fpt_control.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+#treatment day
+write.csv(day_footprint_treatment,
+          paste(path.out,ver,"day_fpt_treatment.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+
+
+
+```
+
+

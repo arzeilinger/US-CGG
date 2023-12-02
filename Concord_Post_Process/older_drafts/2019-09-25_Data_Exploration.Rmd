@@ -1,0 +1,335 @@
+---
+title: "2019-10-10 Data Exploration"
+author: "Tommy Fenster"
+output:
+  html_document:
+    df_print: paged
+Date: '2019-10-10'
+---
+```{r}
+library(tidyverse)
+source("calc_footprint_FFP.R")
+```
+
+
+# Lists #
+```{r}
+rm(list=ls())
+```
+
+
+# Defining the data I/O directory #
+**"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\2019-09-25_All_data_To_Date\eddypro_20190925_Concord_alltodate.csv**
+```{r}
+path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in<-paste(path,"01_Proccessed_Data",sep="")
+path.out<-paste(path,"02_Footprint_Analysis",sep="")
+ver<-"2019-09-25_All_data_To_Date" 
+file.name<-paste("eddypro_20190925_Concord_alltodate",sep="")
+```
+
+# read in eddypro full output file, parse variable names #
+```{r}
+data.in<-read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+                  header=F,
+                  skip=3,
+                  na.strings=c("-9999.0"),
+                  stringsAsFactors = F)
+colnames(data.in)<-colnames(
+  read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+           header=T,
+           skip=1))
+```
+
+# Parsing the time stamp converting it into a POSIXlt vector#
+**interpreting date and time into new timestamp column**
+```{r}
+data.in$TIMESTAMP<-strptime(paste(data.in$date,data.in$time,sep=" "),
+                            format="%Y-%m-%d %H:%M",tz="UTC")
+
+data.in$TIMESTAMP[1:10]
+```
+
+# filter ustar based on qc_Tau. #
+**Filtering out all qc_Tau = 2**
+```{r}
+data.in$u.[!is.na(data.in$qc_Tau)&data.in$qc_Tau==2]<-NA
+```
+
+
+```{r}
+data.in
+```
+
+#plot of co2 fluxes. no defined x axis. limiting the y axis.#
+
+**Need to learn how to exclude -999 without limiting the y axis**
+```{r}
+
+plot(data.in$co2_flux, ylim = c(-20,20))
+```
+#Plotting Co2 flux by DOY on x-axis. Need to figure out how to plot by date? Plus how to break up the date into year month day
+
+```{r}
+
+plot(data.in$TIMESTAMP ,data.in$co2_flux, ylim = c(-10, 10))
+data.in$TIMESTAMP
+```
+
+# filtering co2 flux by qc flag#
+```{r}
+
+data.in$co2_flux[!is.na(data.in$qc_co2_flux)&data.in$qc_co2_flux==2]<-NA
+
+
+```
+
+#plotting co2 flux with QC filter#
+
+```{r}
+plot(data.in$TIMESTAMP ,data.in$co2_flux, ylim = c(-10, 10))
+```
+
+
+```{r}
+data.in
+```
+
+# filtering latent heat, sensible heat and h20flux by quality controls#
+
+```{r}
+data.in$LE.[!is.na(data.in$qc_LE)&data.in$qc_LE==2]<-NA
+
+data.in$qqc_h2o_flux[!is.na(data.in$qc_h2o_flux)&data.in$qc_h2o_flux==2]<-NA
+
+data.in$H[!is.na(data.in$qc_H)&data.in$qc_H==2]<-NA
+
+```
+
+# latent heat, sensible heat, h20_flux, and relative humidity by day for whole period #
+**But is it excluding the NA co2 flux values??  I think so**
+
+```{r}
+
+plot(data.in$TIMESTAMP ,data.in$LE, ylim = c(-300, 1000))
+hist(data.in$LE)
+
+plot(data.in$TIMESTAMP ,data.in$h2o_flux, ylim = c(-5, 7))
+
+plot(data.in$TIMESTAMP ,data.in$H, ylim = c(-50, 400))
+
+plot(data.in$TIMESTAMP ,data.in$RH, ylim = c(0, 100))
+
+
+
+
+
+```
+#latent heat,h20_flux, sensible heat, and relative humidity by two weeks, 1 week, and a day#
+
+```{r}
+plot(data.in$DOY ,data.in$LE, ylim = c(-30, 400), xlim = c(200,214))
+points(data.in$DOY ,data.in$H,col="red",pch=2)
+
+plot(data.in$DOY[data.in$TIMESTAMP$mon==5] ,data.in$LE[data.in$TIMESTAMP$mon==5], ylim = c(-30, 100))
+
+plot(data.in$DOY[data.in$DOY>=200&data.in$DOY<=214] ,data.in$LE[data.in$DOY>=200&data.in$DOY<=214], ylim = c(-30, 100))
+
+plot(data.in$DOY ,data.in$h2o_flux, ylim = c(-5, 7), xlim = c(200,214))
+
+
+plot(data.in$DOY ,data.in$RH, ylim = c(0, 100), xlim = c(200,214))
+
+
+
+plot(data.in$DOY ,data.in$LE, ylim = c(-30, 100), xlim = c(200,207))
+
+plot(data.in$DOY ,data.in$h2o_flux, ylim = c(-5, 7), xlim = c(200,207))
+
+plot(data.in$DOY ,data.in$H, ylim = c(-50, 400), xlim = c(200,207))
+
+plot(data.in$DOY ,data.in$RH, ylim = c(0, 100), xlim = c(200,207))
+
+which(duplicated(data.in$TIMESTAMP))
+
+plot(data.in$air_temperature-273.15,data.in$H,xlim=c(10,40),ylim=c(-100,500))
+plot(data.in$u. ,data.in$co2_flux, ylim = c(0, 10), xlim = c(0,1))
+
+plot(data.in$DOY ,data.in$LE, ylim = c(-30, 100), xlim = c(200,201))
+
+plot(data.in$DOY ,data.in$h2o_flux, ylim = c(-5, 7), xlim = c(200,201))
+
+plot(data.in$DOY ,data.in$H, ylim = c(-50, 400), xlim = c(200,201))
+
+plot(data.in$DOY ,data.in$RH, ylim = c(0, 100), xlim = c(200,201))
+```
+
+#plotting fluxes by the day and the week#
+```{r}
+plot(data.in$DOY ,data.in$co2_flux, xlim = c(180,181), ylim = c(-10, 10))
+
+plot(data.in$DOY ,data.in$co2_flux, xlim = c(200,207), ylim = c(-10, 10))
+```
+
+
+
+#created a csv spreadsheet for a klujn footprint model that has a column for night time and day time#
+```{r}
+data.fpt.daytime<-data.frame(yyyy=data.in$TIMESTAMP$year+1900,
+                     mm=data.in$TIMESTAMP$mon+1,
+                     day=data.in$TIMESTAMP$mday,
+                     HH=floor(data.in$TIMESTAMP$hour),
+                     MM=data.in$TIMESTAMP$min,
+                     daytime=data.in$daytime,
+                     zm=3.67,  ## measurement height (m)
+                     d=0,      ## displacement height (m)
+                     z0=0.05,  ## roughness length (m)
+                     u_mean=data.in$wind_speed,  ## wind speed
+                     L=data.in$L,    ## Monin-Obukov length (m)
+                     sigma_v=sqrt(data.in$v_var),  ## cross-wind standard deviation (m/s)
+                     u_star=data.in$u.,  ## frisction velocity (m/s)
+                     wind_dir=data.in$wind_dir)  ## wind direction
+
+data.fpt.daytime<-na.omit(data.fpt.daytime)
+
+write.csv(data.fpt.daytime,
+          paste(path.out,ver,"daytime_fpt_1_short.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+# filter by daytime and night time. and created a nighttime only csv for the footprint model#
+```{r}
+
+footprint_day<- read.csv("C:/Users/Tommy/flux/Data-exploring/02_Concord/02_Footprint_Analysis2019-09-25_All_data_To_Datedaytime_fpt_1_short.csv")
+
+night_footprint<-footprint_day %>% filter(daytime == "0")
+
+write.csv(night_footprint,
+          paste(path.out,ver,"night_fpt_1_short.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+
+
+# filter by daytime and night time. and created a daytime only csv for the footprint model#
+
+```{r}
+
+
+footprint_day<- read.csv("C:/Users/Tommy/flux/Data-exploring/02_Concord/02_Footprint_Analysis2019-09-25_All_data_To_Datedaytime_fpt_1_short.csv")
+
+day_footprint<-footprint_day %>% filter(daytime == "1")
+
+write.csv(day_footprint,
+          paste(path.out,ver,"day_fpt_1_short.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+#looking at two weeks of data leading up 2019-10-11 and doing QC flag filtering#
+
+```{r}
+Oct112019 <- read.csv("C:/Users/Tommy/flux/Data-exploring/02_Concord/2019-10-11_two_wks_prior/easy_format_eddypro_Concord20191011_full_output_2019-10-14T154324_exp.csv", na.strings = -9999)
+
+summary(Oct112019$wind_speed)
+
+Oct112019$co2_flux[!is.na(Oct112019$qc_co2_flux)&Oct112019$qc_co2_flux==2]<-NA
+
+Oct112019$LE.[!is.na(Oct112019$qc_LE)&Oct112019$qc_LE==2]<-NA
+
+data.in$u.[!is.na(data.in$qc_Tau)&data.in$qc_Tau==2]<-NA
+
+
+
+Oct112019
+
+
+```
+
+
+
+#Co2 flux for 2019-10-11 two weeks prior data#
+
+```{r}
+plot(Oct112019$DOY ,Oct112019$co2_flux, ylim = c(-10, 10))
+```
+
+#filtering out night time respiration data for 2019-10-11 two weeks prior#
+
+```{r}
+night_OCT11 <- filter(Oct112019, daytime == "0" ) 
+```
+
+#plotting night time respirtation for 10-11-2019#
+
+```{r}
+plot(night_OCT11$DOY,night_OCT11$co2_flux, ylim = c(-10, 10))
+```
+
+
+#day time co2 fluxes for 2019-10-11 two weeks prior#
+
+```{r}
+DAY_OCT11 <- filter(Oct112019, daytime == "1" ) 
+
+plot(DAY_OCT11$DOY, DAY_OCT11$co2_flux, ylim = c(-10, 10))
+```
+
+#relative humidity night time and daytime#
+```{r}
+plot(DAY_OCT11$DOY ,DAY_OCT11$RH, ylim = c(0, 100))
+
+plot(night_OCT11$DOY ,night_OCT11$RH, ylim = c(0, 100))
+```
+
+
+
+#trying to filter out all daytime and night time data so i can just look at fluxes. etc, based on nighttime or daytime#
+
+**dealing with more POSIXCT and POSIXLT issues. Only seems to happen whem i do strip time stuff**
+```{r}
+night_resp <- filter(data.in, daytime == "0" ) 
+```
+
+#windrose for wind direction and histograms 2019-10-11 two weeks prior#
+
+```{r}
+library(openair)
+library(tidyverse)
+
+hist(Oct112019$wind_dir, xlim = c(0,370), breaks = 720, main = "Wind Direction")
+
+summary(Oct112019)
+
+windRose(Oct112019, ws="wind_speed",wd="wind_dir")
+
+
+```
+
+
+```{r}
+FFP<‐calc_footprint_FFP(zm=20,z0=0.01,h=2000,ol=‐100,sigmav=0.6,ustar=0.4,wind_dir=30, r=seq(10,80,10))
+
+for(i in 1:nrow(data.in)){
+
+zm<-3.96
+ustar<-data.in$u.[i]
+
+}
+
+
+```
+
+
+
+FFP<‐calc_footprint_FFP(zm=20,z0=0.01,h=2000,ol=‐100,sigmav=0.6,ustar=0.4,wind_dir=30, r=seq(10,80,10))
+
+for(i in 1:nrow(data.in)){
+
+zm<-3.96
+ustar<-data.in$u.[i]
+
+}

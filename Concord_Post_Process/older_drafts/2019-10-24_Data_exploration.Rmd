@@ -1,0 +1,192 @@
+---
+title: "Data Exploration of 2019-10-24 Data Download"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+source("calc_footprint_FFP.R")
+library(ggplot2)
+library(modelr)
+options(na.action = na.warn)
+```
+
+
+# Lists #
+```{r}
+rm(list=ls())
+```
+
+
+# Defining the data I/O directory #
+**"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\2019-09-25_All_data_To_Date\eddypro_20190925_Concord_alltodate.csv**
+```{r}
+path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in<-paste(path,"01_Proccessed_Data",sep="")
+path.out<-paste(path,"02_Footprint_Analysis",sep="")
+ver<-"2019-10-24_two_wks_prior" 
+file.name<-paste("eddypro_Concord20191024_full_output_2019-11-04T170244_exp",sep="")
+```
+
+# read in eddypro full output file, parse variable names #
+```{r}
+data20191024<-read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+                  header=F,
+                  skip=3,
+                  na.strings=c(-9999),
+                  stringsAsFactors = F)
+colnames(data20191024)<-colnames(
+  read.csv(paste(path.in,"\\",ver,"\\",file.name,".csv",sep=""),
+           header=T,
+           skip=1))
+```
+
+# Parsing the time stamp converting it into a POSIXlt vector#
+**interpreting date and time into new timestamp column**
+```{r}
+data20191024$TIMESTAMP<-strptime(paste(data20191024$date,data20191024$time,sep=" "),
+                            format="%Y-%m-%d %H:%M",tz="UTC")
+
+data20191024$TIMESTAMP[1:10]
+```
+
+#Basic Summary of Data
+
+```{r}
+summary(data20191024)
+```
+
+
+# filter ustar based on qc_Tau. #
+**Filtering out all qc_Tau = 2**
+```{r}
+data20191024$u.[!is.na(data20191024$qc_Tau)&data20191024$qc_Tau==2]<-NA
+```
+
+
+#Plotting Co2 flux by timstamp on x-axis. 
+```{r}
+
+plot(data20191024$TIMESTAMP ,data20191024$co2_flux)
+
+```
+
+# filtering latent heat, sensible heat and h20flux by quality controls#
+
+```{r}
+data20191024$LE.[!is.na(data20191024$qc_LE)&data20191024$qc_LE==2]<-NA
+
+data20191024$qqc_h2o_flux[!is.na(data20191024$qc_h2o_flux)&data20191024$qc_h2o_flux==2]<-NA
+
+data20191024$H[!is.na(data20191024$qc_H)&data20191024$qc_H==2]<-NA
+
+```
+
+# latent heat, sensible heat, h20_flux, and relative humidity by day for whole period #
+
+
+```{r}
+
+plot(data20191024$TIMESTAMP ,data20191024$LE)
+hist(data20191024$LE)
+
+plot(data20191024$TIMESTAMP ,data20191024$h2o_flux)
+
+plot(data20191024$TIMESTAMP ,data20191024$H)
+
+plot(data20191024$TIMESTAMP ,data20191024$RH)
+
+
+
+
+
+```
+
+
+#h20 flux and co2 flux
+```{r}
+
+plot(data20191024$TIMESTAMP ,data20191024$co2_flux, ylim = c(-6,6))
+points(data20191024$TIMESTAMP ,data20191024$h2o_flux,col="red",pch=2)
+
+```
+
+
+#latent heat and Sensible heat plotted over eachother
+
+```{r}
+plot(data20191024$TIMESTAMP ,data20191024$LE)
+points(data20191024$TIMESTAMP ,data20191024$H,col="red",pch=2)
+```
+
+#air temperatue by sensible heat an U* by co2 flux
+```{r}
+plot(data20191024$air_temperature-273.15,data20191024$H,xlim=c(10,40),ylim=c(-100,500))
+
+
+
+plot(data20191024$u. ,data20191024$co2_flux, ylim = c(0, 10), xlim = c(0,1))
+```
+
+
+#Adding best fit line to air temperature by sensible heat
+```{r}
+ggplot(data = data20191024) + 
+  geom_point(mapping = aes(x = air_temperature-273.15, y = H)) +
+  geom_smooth(mapping = aes(x = air_temperature-273.15, y = H))
+
+ggplot(data = data20191024) + 
+  geom_point(mapping = aes(x = air_temperature-273.15, y = H)) +
+    geom_smooth(mapping = aes(x = air_temperature-273.15, y = H, method= 'lm', se = FALSE))
+```
+
+#best fit line to U* bt co2 flux
+```{r}
+ggplot(data = data20191024) + 
+  geom_point(mapping = aes(x = u., y = co2_flux)) +
+  geom_smooth(mapping = aes(x = u., y = co2_flux))
+
+
+```
+
+
+```{r}
+library(openair)
+library(tidyverse)
+
+hist(data20191024$wind_dir, xlim = c(0,370), breaks = 36, main = "Wind Direction")
+
+
+
+
+```
+
+
+
+
+#ggplot regression
+**doing stuff wrong, not sure what**
+
+```{r}
+ggplotRegression <- function (fit) {
+
+   
+
+    ggplot(fit$model, aes_string(x = air_temperature-273.15(fit$model)[2], y = H(fit$model)[1])) + 
+      geom_point() +
+      stat_smooth(method = "lm", col = "red") +
+      labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                         "Intercept =",signif(fit$coef[[1]],5 ),
+                         " Slope =",signif(fit$coef[[2]], 5),
+                         " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+
+
+```
+
+```{r}
+
+ 
+```
+
+

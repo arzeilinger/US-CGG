@@ -1,0 +1,1041 @@
+---
+title: "Bootstrap GAM Concord Control Side"
+output: html_document
+---
+```{r}
+require(dplyr)
+require(mgcv)
+library(mgcv)
+library(ggplot2)
+library(ISLR)
+library(mgcv)
+library(boot)
+require(matrixStats)
+```
+
+#load tower and eosense data
+
+#Defining the data I/O directory
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+GAM.path<-paste0(root.path,"14_GAM_ready_Data\\") # this is tower data for the GAM model lives
+
+eosense.path<- paste0(root.path,"14_GAM_ready_Data\\")#this is were the data for the eosense data for the GAM model lives
+
+ 
+
+
+out.path<-paste0(root.path, "15_GAM_predict_data\\")
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.GAM_pre_compost<-paste0("2021-09-14_pre_compost_GAM_data.csv")
+
+
+
+cdata.eo_sense <- paste("eo_sense_20210806.csv")
+
+# cdata.GAM_test <- paste("2021-07-13_control_post_compost_GAM_data.csv")
+ 
+```
+
+
+#Tower data for the GAM model
+
+```{r}
+## read in full output file of gap filled data
+GAM_pre_compost <-
+  read.csv(
+    paste0(GAM.path, cdata.GAM_pre_compost, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(GAM_pre_compost) <-
+  colnames(read.csv(
+    paste(GAM.path, cdata.GAM_pre_compost, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(GAM_pre_compost)
+
+tail(GAM_pre_compost)
+
+```
+
+#Read in eosense data for the GAm model
+
+```{r}
+## read in eo_sensee_data
+eosense.data <-
+  read.csv(
+    paste0(eosense.path, cdata.eo_sense, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(eosense.data) <-
+  colnames(read.csv(
+    paste(GAM.path, cdata.eo_sense, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(eosense.data)
+
+tail(eosense.data)
+
+
+```
+
+
+
+#adding POSIXT format back to Gam_pre_compost_data
+```{r}
+
+
+GAM_pre_compost$TIMESTAMP <- strptime(paste(GAM_pre_compost$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+
+GAM_pre_compost$TIMESTAMP[500:560]
+
+head(GAM_pre_compost)
+
+plot( GAM_pre_compost$TIMESTAMP, GAM_pre_compost$NEE)
+```
+
+```{r}
+GAM_pre_compost$time.id <- GAM_pre_compost$TIMESTAMP$year + 1900 +
+  (GAM_pre_compost$TIMESTAMP$yday) / 366 +
+  (GAM_pre_compost$TIMESTAMP$hour) / 366 / 24 +
+  (GAM_pre_compost$TIMESTAMP$min) / 366 / 24 / 60
+
+GAM_pre_compost$time.id[1:50]
+plot(GAM_pre_compost$TIMESTAMP, GAM_pre_compost$time.id)
+# which(duplicated(GAM_pre_compost$time.id))
+
+
+
+# which(duplicated(GAM_pre_compost$TIMESTAMP))
+# 
+# 
+# 
+# which(duplicated(GAM_pre_compost$time.id))
+
+# GAM_pre_compost %>% distinct(time.id, .keep_all = TRUE)
+# 
+# GAM_pre_compost[!duplicated(GAM_pre_compost$TIMESTAMP), ]
+
+```
+
+
+
+#creating timestamp for eosense data
+```{r}
+
+eosense.data$Year<-eosense.data$Year +2000
+
+
+eosense.data
+
+
+#combining month day year into a date column. 
+eosense.data$Date<-paste(eosense.data$Month,eosense.data$Day, eosense.data$Year,sep="/")
+
+head( eosense.data$Date, 50)
+
+eosense.data
+
+#creating a timestamp based on 
+eosense.data$TIMESTAMP<-strptime(paste(eosense.data$Date,eosense.data$Time,sep=" "),
+                          format="%m/%d/%Y %H:%M ",
+                          tz = "Etc/GMT-8")
+
+
+eosense.data
+
+eosense.data$TIMESTAMP[1:50]
+
+plot(eosense.data$TIMESTAMP, eosense.data$Flux)
+
+```
+
+```{r}
+#creating time id for eosense data
+eosense.data$time.id<-eosense.data$TIMESTAMP$year+1900+
+  (eosense.data$TIMESTAMP$yday)/366+
+  (eosense.data$TIMESTAMP$hour)/366/24+
+  (eosense.data$TIMESTAMP$min)/366/24/60
+
+eosense.data$time.id[1:50]
+plot(eosense.data$TIMESTAMP,eosense.data$time.id)
+
+which(duplicated(eosense.data$time.id))
+
+eosense.data %>% distinct(time.id, .keep_all = TRUE)
+
+head(eosense.data)
+```
+
+
+#creating full time stamp without gaps for merging data
+```{r}
+
+# create a full timestamp, 30 mins
+full.time<-data.frame(TIMESTAMP=
+                        seq.POSIXt(min(min(GAM_pre_compost$TIMESTAMP),min(eosense.data$TIMESTAMP)),
+                                   max(max(GAM_pre_compost$TIMESTAMP),max(eosense.data$TIMESTAMP)),
+                                   units = "seconds", by = 1800),
+                      stringsAsFactors=F)
+
+full.time$TIMESTAMP<-strptime(full.time$TIMESTAMP,
+                              format ="%Y-%m-%d %H:%M:%S",
+                              tz = "Etc/GMT-8")
+
+full.time$time.id <-full.time$TIMESTAMP$year+1900+
+  (full.time$TIMESTAMP$yday)/366+
+  (full.time$TIMESTAMP$hour)/366/24+
+  (full.time$TIMESTAMP$min)/366/24/60 
+
+print(paste("Starting timestamp:",full.time$TIMESTAMP[1]))
+print(paste("Ending timestamp:",full.time$TIMESTAMP[nrow(full.time)]))
+
+head(full.time)
+
+which(duplicated(full.time$time.id))
+
+```
+
+#merging tower and eosense data
+```{r}
+tower_eo_sense.data<- merge.data.frame(full.time,
+                         GAM_pre_compost[,-which(colnames(GAM_pre_compost)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+#all=true what ever appears in each file is show in the file data file. sort tries to sort each data frame by merging. in this case probably doesnot matter. timestamp
+
+tower_eo_sense.data<- merge.data.frame(tower_eo_sense.data,
+                         eosense.data[,-which(colnames(eosense.data)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+
+head(tower_eo_sense.data, 50)
+tail(tower_eo_sense.data, 50)
+
+tower_eo_sense.data
+```
+
+```{r}
+#seeing which rows are duplicated
+which(duplicated(tower_eo_sense.data$TIMESTAMP))
+
+#removing duplicated rows
+tower_eo_sense.data<-tower_eo_sense.data[!duplicated(tower_eo_sense.data$TIMESTAMP), ]
+
+#checking that this worked
+
+ which(duplicated(tower_eo_sense.data$TIMESTAMP))
+ 
+
+```
+
+
+
+
+
+```{r}
+summary(tower_eo_sense.data$NEE)
+
+summary(tower_eo_sense.data$Flux)
+```
+
+
+
+
+
+#plotting in blue NEE from Tower and red, flux from chamber
+```{r}
+plot(tower_eo_sense.data$TIMESTAMP, tower_eo_sense.data$Flux, 
+     ylim = c(-10,10),
+     col= "red")
+
+par(new= TRUE)
+
+plot(tower_eo_sense.data$TIMESTAMP, tower_eo_sense.data$NEE, 
+     ylim = c(-10,10),
+     col= "blue")
+
+summary(tower_eo_sense.data$NEE)
+summary(tower_eo_sense.data$Flux)
+
+```
+
+
+
+##Night time control side CO2
+  you choose number of times to be run (line 49)
+  choose sample size (line 55)
+  creates n number of gams (line 56)
+  makes the predictions on each gam (ine 58)
+  unlists and transposes the predictions (lines 61 and 62)
+  puts all in one df (lines 65 and 70)
+  find the mean and the 95% CI for each point  (lines 73 to 87)
+  puts the mean, upper, and lower CI into one dataframe called mean_df (lines 90-92)
+  
+
+```{r}
+# subset data to just be night time data we are making the bootstrap GAM model with. 
+
+
+night_control_tower_eosense.data<- tower_eo_sense.data[!is.na(tower_eo_sense.data$Rg) & tower_eo_sense.data$Rg<=10, ]
+
+night_control_tower_eosense.data
+
+tower_eo_sense.data
+
+tail(night_control_tower_eosense.data$TIMESTAMP)
+```
+#overall outlieres
+```{r}
+
+
+boxplot(tower_eo_sense.data$NEE,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats <-boxplot.stats(tower_eo_sense.data$NEE)$out
+
+min(box_stats)
+
+sort.int(box_stats)
+
+lower_bound <- quantile(tower_eo_sense.data$NEE, 0.01, na.rm = TRUE)
+lower_bound
+
+upper_bound <- quantile(tower_eo_sense.data$NEE, 0.99, na.rm = TRUE)
+upper_bound
+```
+```{r}
+plot(night_control_tower_eosense.data$NEE, night_control_tower_eosense.data$Flux)
+
+plot(night_control_tower_eosense.data$NEE, night_control_tower_eosense.data$pred_GAM_NEE)
+```
+
+#night time outliers
+```{r}
+
+boxplot(night_control_tower_eosense.data$NEE,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats <-boxplot.stats(night_control_tower_eosense.data$NEE)$out
+
+min(box_stats)
+
+sort.int(box_stats)
+
+lower_bound <- quantile(night_control_tower_eosense.data$NEE, 0.01, na.rm = TRUE)
+lower_bound
+
+upper_bound <- quantile(night_control_tower_eosense.data$NEE, 0.99, na.rm = TRUE)
+upper_bound
+```
+
+
+#removing night time outliers
+
+```{r}
+#from overall data removing any points greater than 6.405
+night_control_tower_eosense.data$NEE[ night_control_tower_eosense.data$NEE > 3.890] <-NA
+
+night_control_tower_eosense.data$NEE[ night_control_tower_eosense.data$NEE < -1.380 ] <-NA
+
+summary(night_control_tower_eosense.data$NEE)
+```
+
+```{r}
+#if an error says vector length not the same you may have a column with too many NaN's
+
+n <- 1:30 ##enter number of times to be run here 
+
+## use data.frame since you only have 1 fixed-length vector each time
+master_control_pred = data.frame(NULL)
+
+# create progress bar
+pb <- txtProgressBar(min = 0, max = max(n), style = 3)
+for (x in n)
+{
+  ## use this to track time for each major steps (could be comment out)
+  time.ini <- Sys.time()
+  
+  #### the following part deal with re-sampling (bootstrapping)
+  ## use the original data
+  if(x == 1){
+  control_co2_sample <- night_control_tower_eosense.data
+    
+  }else{
+  ## re-sample data for n-1 times, with the same sample size, but with repeats 
+  control_co2_sample <-
+    sample_n(night_control_tower_eosense.data, size = nrow(night_control_tower_eosense.data), replace = T)    
+    
+  }
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  ## avoid using names that is designated in R, e.g., gam 
+  #removed precip. too many zeros. sometime nothing to sample breaking the code
+   
+  #this is getting renamed reco
+  nee.gam <-
+    gam(
+      NEE ~ s(Flux, k = 12) + s(VWC_Control_GF, k = 30) + s(Tair, VPD, k = 30) ,
+      data = control_co2_sample,
+      method = "REML",
+      na.action=na.omit
+     
+    )
+  #do a nee gam with just the daytimedata
+ 
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  #this is if we want to see each gam and its info separately in the environment on the right
+  pred_control_co2 <-
+    predict(
+      nee.gam, #this will be reco
+      night_control_tower_eosense.data, #add overall dataframe this will get us to the four continuous vectors. bootstrapping is how we get our uncertainty. After prediction we want to prediction and then cumulative sum. Predict uncertainty at each stump and do it all here. Put everything in here. will have 500 accumlative cum sum, gpp, reco, nee. can then extract uncertainty. If we want to see the difference between the cumulatively sum we can do that to. This will give us uncertainty level for that estimate. 
+      #going to have a nee with daytime data with just daytime pred applied
+      type = "link",
+      se.fit = FALSE,
+      terms = NULL,
+      exclude = NULL,
+      block.size = NULL,
+      newdata.guaranteed = FALSE,
+      na.action = na.pass,
+      unconditional = FALSE,
+      iterms.type = NULL
+    )
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  control_co2_pred <-
+    data.frame(matrix(
+      unlist(pred_control_co2),
+      nrow = length(pred_control_co2),
+      byrow = TRUE
+    ))
+  #have GPP somewhere in loop. should be simple one line of code. 
+  #control_co2_pred <- as.data.frame(t(control_co2_pred))
+  #control_co2_pred = subset(control_co2_pred, select = -c(V2))
+  # control_co2_pred$x <- x  use this if we want to know which run is which.
+  if(x == 1){
+    master_control_pred <- control_co2_pred
+  }else{
+    master_control_pred <- cbind.data.frame(master_control_pred,
+                                            control_co2_pred)   
+  }
+  
+  #assign(paste("control_co2_pred",x,sep="_"),control_co2_pred)  ##this is if we want to see each prediction separately (has standard error)
+  
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  # update progress bar
+  Sys.sleep(0.1)
+  setTxtProgressBar(pb, x)
+}
+
+#put all the predicted data together 
+#master_control_co2 = do.call(cbind, master_control_pred)
+
+#find the mean 
+night_control_tower_eosense.data$pred_GAM_NEE <- rowMeans(master_control_pred, na.rm = TRUE)
+#mean<-rowMeans(master_control_co2, na.rm=TRUE)
+#mean_df<- as.data.frame(mean)  #make it a data frame to plot
+
+#find the standard deviation 
+#master_control_co2_matrix<-data.matrix(master_control_co2, rownames.force = NA)  #to be able to find row stdev, have to convert to numerix matrix
+night_control_tower_eosense.data$NEE_pred_stdev <- apply(master_control_pred, 1, sd, na.rm = TRUE)
+#stdev<-rowSds(master_control_co2_matrix, na.rm=TRUE)
+#stdev_df<- as.data.frame(stdev) #make it a data frame to plot
+
+#find upper lim of CI
+#upperlim=mean_df$mean+1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#upperlim_df<- as.data.frame(upperlim)
+night_control_tower_eosense.data$upperCI <- apply(master_control_pred, 1, quantile, probs = 0.975, na.rm = TRUE)
+
+#find lower lim of CI
+#lowerlim=mean_df$mean-1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#lowerlim_df<- as.data.frame(lowerlim)
+night_control_tower_eosense.data$lowerCI <- apply(master_control_pred, 1, quantile, probs = 0.025, na.rm = TRUE)
+
+#put needed values in a dataframe 
+#mean_df$lowerCI=lowerlim_df$lowerlim
+#mean_df$upperCI=upperlim_df$upperlim
+#mean_df$TIMESTAMP=tower_eo_sense.data$TIMESTAMP
+  
+  
+```
+
+#plots 
+Two plots, but they are the same. Just different colors
+
+```{r}
+#plots
+plot(night_control_tower_eosense.data$TIMESTAMP,
+      night_control_tower_eosense.data$upperCI, lty = 'dashed', col = 'red')
+lines(night_control_tower_eosense.data$TIMESTAMP,
+      night_control_tower_eosense.data$lowerCI, lty = 'dashed', col = 'red')
+lines(night_control_tower_eosense.data$TIMESTAMP,
+     night_control_tower_eosense.data$pred_GAM_NEE,
+     col="black")
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+
+
+# 
+# plot(tower_eo_sense.data$TIMESTAMP,
+#        upperlim_df$upperlim,
+#        col="green",
+#      ylim = c(-60,20))
+#      # pch = 16,)
+# lines(tower_eo_sense.data$TIMESTAMP,
+#       upperlim_df$upperlim,
+#        col="green",
+#       ylim = c(-60,20))
+# 
+# points(tower_eo_sense.data$TIMESTAMP,
+#        lowerlim_df$lowerlim,
+#        col="blue",)
+#      # pch = 16,
+# ylim = c(-60,20)
+# lines(tower_eo_sense.data$TIMESTAMP,
+#       lowerlim_df$lowerlim,
+#       col="blue",
+#       ylim = c(-60,20))
+# points(tower_eo_sense.data$TIMESTAMP,
+#      mean_df$mean,
+#      col="red",
+#       #pch = 16,)
+# ylim = c(-60,20))
+# lines(tower_eo_sense.data$TIMESTAMP
+#       ,mean_df$mean,
+#      col="red",
+#      ylim = c(-60,20))
+#   legend(
+#          legend = c("upper 95% CI","lower 95% CI","mean"),
+#            pch = 16,
+#          col = c( "green", "blue","red"),
+#          bty = "n")
+  
+```
+
+```{r}
+  #creating a new NEE column with the modeled control side data
+night_control_tower_eosense.data $NEE_control_GF_GAM <- (night_control_tower_eosense.data$NEE * 1)
+
+
+
+
+summary(night_control_tower_eosense.data $NEE_control_GF_GAM)
+
+
+
+#making any NA values measured by the tower the chamber gapfilled values.
+night_control_tower_eosense.data$NEE_control_GF_GAM[is.na(night_control_tower_eosense.data$NEE_control_GF_GAM)] <-
+  night_control_tower_eosense.data$pred_GAM_NEE[is.na(night_control_tower_eosense.data$NEE_control_GF_GAM)]
+
+
+summary(night_control_tower_eosense.data $NEE_control_GF_GAM)
+
+plot(night_control_tower_eosense.data$NEE_control_GF_GAM)
+
+```
+
+
+```{r}
+#plotting
+plot(night_control_tower_eosense.data$TIMESTAMP,night_control_tower_eosense.data$NEE_control_GF_GAM,
+  
+     col= 'red')
+
+par(new=TRUE)
+plot(night_control_tower_eosense.data$TIMESTAMP, night_control_tower_eosense.data$NEE)
+
+plot(night_control_tower_eosense.data$TIMESTAMP, night_control_tower_eosense.data$pred_GAM_NEE)
+
+with(night_control_tower_eosense.data, boxplot(night_control_tower_eosense.data$NEE_control_GF_GAM~treatment
+                          ))
+#comparing NEE data to chamber filled data
+summary(night_control_tower_eosense.data$NEE)
+summary(night_control_tower_eosense.data $NEE_control_GF_GAM)
+
+
+summary(night_control_tower_eosense.data$NEE[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+summary(night_control_tower_eosense.data $NEE_control_GF_GAM[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+
+```
+```{r}
+boxplot(night_control_tower_eosense.data$NEE_control_GF_GAM,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_GF_control_night <-boxplot.stats(night_control_tower_eosense.data$NEE_control_GF_GAM)$out
+
+min(box_stats_GF_control_night)
+
+summary(night_control_tower_eosense.data$NEE_control_GF_GAM)
+
+sort.int(box_stats_GF_control_night)
+```
+
+```{r}
+
+
+
+#comparing orginal NEE data to GF with chambers again
+summary(night_control_tower_eosense.data $NEE_control_GF_GAM)
+summary(night_control_tower_eosense.data$NEE)
+
+#comparing post compost application
+summary(night_control_tower_eosense.data $NEE_control_GF_GAM[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+summary(night_control_tower_eosense.data$NEE[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+
+
+#plotting overall data
+plot(night_control_tower_eosense.data$NEE_control_GF_GAM ,
+     # ylim=c (-60,20),
+     col ="red")
+par(new= TRUE)
+plot(night_control_tower_eosense.data$NEE,
+     # ylim=c (-60,20),
+     col ="blue")
+
+#plotting data post compost application
+plot(night_control_tower_eosense.data$TIMESTAMP[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & night_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],night_control_tower_eosense.data$NEE_control_GF_GAM [night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & night_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],
+      ylim=c (0, 3.5),
+     ylab = "NEE",
+     xlab ="2020-2021",
+     main = "Night Control Side tower data (blue) and GF GAM Data (red)",
+     col ="red")
+par(new= TRUE)
+plot(night_control_tower_eosense.data$TIMESTAMP[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & night_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],night_control_tower_eosense.data$NEE[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & night_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12") & night_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12") ],
+     ylim=c (0, 3.5),
+     ylab = "",
+     xlab = "",
+     col ="blue")
+```
+
+
+
+```{r}
+#plots
+plot(night_control_tower_eosense.data$TIMESTAMP,
+      night_control_tower_eosense.data$upperCI, lty = 'dashed', col = 'red', 
+     # ylim = c(-20,20)
+     )
+lines(night_control_tower_eosense.data$TIMESTAMP,
+      night_control_tower_eosense.data$lowerCI, lty = 'dashed', col = 'red',   
+      # ylim = c(-20,20)
+      )
+lines(night_control_tower_eosense.data$TIMESTAMP,
+     night_control_tower_eosense.data$NEE_control_GF_GAM,
+     col="black",   ylim = c(-60,20))
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+```
+
+```{r}
+#seeing which rows are duplicated
+which(duplicated(night_control_tower_eosense.data$TIMESTAMP))
+
+summary(night_control_tower_eosense.data$NEE_control_GF_GAM)
+
+# #removing duplicated rows
+# night_control_tower_eosense.data<-night_control_tower_eosense.data[!duplicated(night_control_tower_eosense.data$TIMESTAMP), ]
+# 
+# #checking that this worked
+# 
+#  which(duplicated(night_control_tower_eosense.data$TIMESTAMP))
+#  
+#  #removing any rows with NA in time.id column
+#  night_control_tower_eosense.data <- night_control_tower_eosense.data[ !(night_control_tower_eosense.data$time.id %in% c(NA)), ]
+#  
+# #removing any rows with NA in TIMESTAMP column 
+#   night_control_tower_eosense.data <- night_control_tower_eosense.data[ !(night_control_tower_eosense.data$TIMESTAMP %in% c(NA)), ]
+#   
+#  which(duplicated(night_control_tower_eosense.data$TIMESTAMP))
+#  
+#  summary(night_control_tower_eosense.data $NEE_control_GF_GAM[night_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+#  
+#  night_control_tower_eosense.data
+ 
+
+
+
+
+
+```
+
+
+##########################################################################
+#Daytime control side data
+
+```{r}
+#tryingto subset data to just be day time data we are making the bootstrap GAM model with. 
+
+
+day_control_tower_eosense.data<- tower_eo_sense.data[!is.na(tower_eo_sense.data$Rg) & tower_eo_sense.data$Rg>10, ]
+
+day_control_tower_eosense.data
+
+tower_eo_sense.data
+
+tail(day_control_tower_eosense.data$TIMESTAMP)
+```
+#day time outliers
+```{r}
+
+boxplot(day_control_tower_eosense.data$NEE,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_day_control <-boxplot.stats(day_control_tower_eosense.data$NEE)$out
+
+min(box_stats_day_control)
+
+sort.int(box_stats_day_control)
+
+lower_bound_day_cont <- quantile(day_control_tower_eosense.data$NEE, 0.01, na.rm = TRUE)
+lower_bound_day_cont
+
+upper_bound_day_cont <- quantile(day_control_tower_eosense.data$NEE, 0.99, na.rm = TRUE)
+upper_bound_day_cont
+```
+
+
+#removing day time outliers
+
+```{r}
+#
+day_control_tower_eosense.data$NEE[ day_control_tower_eosense.data$NEE > 4.568] <-NA
+
+day_control_tower_eosense.data$NEE[ day_control_tower_eosense.data$NEE < -9.108 ] <-NA
+
+summary(day_control_tower_eosense.data$NEE)
+```
+  
+
+```{r}
+#if an error says vector length not the same you may have a column with too many NaN's
+
+n <- 1:30 ##enter number of times to be run here 
+
+## use data.frame since you only have 1 fixed-length vector each time
+master_control_day_pred = data.frame(NULL)
+
+# create progress bar
+pb <- txtProgressBar(min = 0, max = max(n), style = 3)
+for (x in n)
+{
+  ## use this to track time for each major steps (could be comment out)
+  time.ini <- Sys.time()
+  
+  #### the following part deal with re-sampling (bootstrapping)
+  ## use the original data
+  if(x == 1){
+  control_day_co2_sample <- day_control_tower_eosense.data
+    
+  }else{
+  ## re-sample data for n-1 times, with the same sample size, but with repeats 
+  control_day_co2_sample <-
+    sample_n(day_control_tower_eosense.data, size = nrow(day_control_tower_eosense.data), replace = T)    
+    
+  }
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  ## avoid using names that is designated in R, e.g., gam 
+  #removed precip. too many zeros. sometime nothing to sample breaking the code
+   
+  nee.gam_control_day <-
+    gam(
+      NEE ~ s(VWC_Control_GF, k = 30) + s(Rg, Tair, VPD, k = 30) ,
+      data = control_day_co2_sample,
+      method = "REML",
+      na.action=na.omit
+     
+    )
+ 
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  #this is if we want to see each gam and its info separately in the environment on the right
+  pred_day_control_co2 <-
+    predict(
+      nee.gam_control_day,
+      day_control_tower_eosense.data,
+      type = "link",
+      se.fit = FALSE,
+      terms = NULL,
+      exclude = NULL,
+      block.size = NULL,
+      newdata.guaranteed = FALSE,
+      na.action = na.pass,
+      unconditional = FALSE,
+      iterms.type = NULL
+    )
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  control_co2_pred <-
+    data.frame(matrix(
+      unlist(pred_day_control_co2),
+      nrow = length(pred_day_control_co2),
+      byrow = TRUE
+    ))
+  #control_co2_pred <- as.data.frame(t(control_co2_pred))
+  #control_co2_pred = subset(control_co2_pred, select = -c(V2))
+  # control_co2_pred$x <- x  use this if we want to know which run is which.
+  if(x == 1){
+    master_control_day_pred <- control_co2_pred
+  }else{
+    master_control_day_pred <- cbind.data.frame(master_control_day_pred,
+                                            control_co2_pred)   
+  }
+  
+  #assign(paste("control_co2_pred",x,sep="_"),control_co2_pred)  ##this is if we want to see each prediction separately (has standard error)
+  
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  # update progress bar
+  Sys.sleep(0.1)
+  setTxtProgressBar(pb, x)
+}
+
+#put all the predicted data together 
+#master_control_co2 = do.call(cbind, master_control_day_pred)
+
+#find the mean 
+day_control_tower_eosense.data$pred_GAM_NEE <- rowMeans(master_control_day_pred, na.rm = TRUE)
+#mean<-rowMeans(master_control_co2, na.rm=TRUE)
+#mean_df<- as.data.frame(mean)  #make it a data frame to plot
+
+#find the standard deviation 
+#master_control_co2_matrix<-data.matrix(master_control_co2, rownames.force = NA)  #to be able to find row stdev, have to convert to numerix matrix
+day_control_tower_eosense.data$NEE_pred_stdev <- apply(master_control_day_pred, 1, sd, na.rm = TRUE)
+#stdev<-rowSds(master_control_co2_matrix, na.rm=TRUE)
+#stdev_df<- as.data.frame(stdev) #make it a data frame to plot
+
+#find upper lim of CI
+#upperlim=mean_df$mean+1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#upperlim_df<- as.data.frame(upperlim)
+day_control_tower_eosense.data$upperCI <- apply(master_control_day_pred, 1, quantile, probs = 0.975, na.rm = TRUE)
+
+#find lower lim of CI
+#lowerlim=mean_df$mean-1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#lowerlim_df<- as.data.frame(lowerlim)
+day_control_tower_eosense.data$lowerCI <- apply(master_control_day_pred, 1, quantile, probs = 0.025, na.rm = TRUE)
+
+#put needed values in a dataframe 
+#mean_df$lowerCI=lowerlim_df$lowerlim
+#mean_df$upperCI=upperlim_df$upperlim
+#mean_df$TIMESTAMP=tower_eo_sense.data$TIMESTAMP
+  
+  
+```
+
+#plots 
+Two plots, but they are the same. Just different colors
+
+```{r}
+#plots
+plot(day_control_tower_eosense.data$TIMESTAMP,
+      day_control_tower_eosense.data$upperCI, lty = 'dashed', col = 'red')
+lines(day_control_tower_eosense.data$TIMESTAMP,
+      day_control_tower_eosense.data$lowerCI, lty = 'dashed', col = 'red')
+lines(day_control_tower_eosense.data$TIMESTAMP,
+     day_control_tower_eosense.data$pred_GAM_NEE,
+     col="black")
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+
+
+# 
+# plot(tower_eo_sense.data$TIMESTAMP,
+#        upperlim_df$upperlim,
+#        col="green",
+#      ylim = c(-60,20))
+#      # pch = 16,)
+# lines(tower_eo_sense.data$TIMESTAMP,
+#       upperlim_df$upperlim,
+#        col="green",
+#       ylim = c(-60,20))
+# 
+# points(tower_eo_sense.data$TIMESTAMP,
+#        lowerlim_df$lowerlim,
+#        col="blue",)
+#      # pch = 16,
+# ylim = c(-60,20)
+# lines(tower_eo_sense.data$TIMESTAMP,
+#       lowerlim_df$lowerlim,
+#       col="blue",
+#       ylim = c(-60,20))
+# points(tower_eo_sense.data$TIMESTAMP,
+#      mean_df$mean,
+#      col="red",
+#       #pch = 16,)
+# ylim = c(-60,20))
+# lines(tower_eo_sense.data$TIMESTAMP
+#       ,mean_df$mean,
+#      col="red",
+#      ylim = c(-60,20))
+#   legend(
+#          legend = c("upper 95% CI","lower 95% CI","mean"),
+#            pch = 16,
+#          col = c( "green", "blue","red"),
+#          bty = "n")
+  
+```
+
+```{r}
+  #creating a new NEE column with the modeled control side data
+day_control_tower_eosense.data $NEE_control_GF_GAM <- (day_control_tower_eosense.data$NEE * 1)
+
+
+
+summary(day_control_tower_eosense.data $NEE_control_GF_GAM)
+
+
+
+#making any NA values measured by the tower the  gapfilled values.
+day_control_tower_eosense.data$NEE_control_GF_GAM[is.na(day_control_tower_eosense.data$NEE_control_GF_GAM)] <-
+  day_control_tower_eosense.data$pred_GAM_NEE[is.na(day_control_tower_eosense.data$NEE_control_GF_GAM)]
+
+
+summary(day_control_tower_eosense.data $NEE_control_GF_GAM)
+
+plot(day_control_tower_eosense.data$NEE_control_GF_GAM)
+
+```
+
+
+```{r}
+#plotting
+plot(day_control_tower_eosense.data$TIMESTAMP,day_control_tower_eosense.data$NEE_control_GF_GAM,
+  
+     col= 'red')
+
+par(new=TRUE)
+plot(day_control_tower_eosense.data$TIMESTAMP, day_control_tower_eosense.data$NEE)
+
+plot(day_control_tower_eosense.data$TIMESTAMP, day_control_tower_eosense.data$pred_GAM_NEE)
+
+with(day_control_tower_eosense.data, boxplot(day_control_tower_eosense.data$NEE_control_GF_GAM~treatment
+                          ))
+#comparing NEE data to chamber filled data
+summary(day_control_tower_eosense.data$NEE)
+summary(day_control_tower_eosense.data $NEE_control_GF_GAM)
+
+
+summary(day_control_tower_eosense.data$NEE[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+summary(day_control_tower_eosense.data $NEE_control_GF_GAM[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+
+```
+
+
+```{r}
+boxplot(day_control_tower_eosense.data$NEE_control_GF_GAM,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_GF <-boxplot.stats(day_control_tower_eosense.data$NEE_control_GF_GAM)$out
+
+min(box_stats_GF)
+
+sort.int(box_stats_GF)
+```
+
+```{r}
+
+
+
+#comparing orginal NEE data to GF with chambers again
+summary(day_control_tower_eosense.data $NEE_control_GF_GAM)
+summary(day_control_tower_eosense.data$NEE)
+
+#comparing post compost application
+summary(day_control_tower_eosense.data $NEE_control_GF_GAM[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+summary(day_control_tower_eosense.data$NEE[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-10-16")])
+
+
+#plotting overall data
+plot(day_control_tower_eosense.data$NEE_control_GF_GAM ,
+      ylim=c (-10,5),
+     col ="red")
+par(new= TRUE)
+plot(day_control_tower_eosense.data$NEE,
+      ylim=c (-10,5),
+     col ="blue")
+
+#plotting data post compost application
+plot(day_control_tower_eosense.data$TIMESTAMP[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & day_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],day_control_tower_eosense.data$NEE_control_GF_GAM [day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & day_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],
+     ylim=c (-8,5),
+     ylab = "NEE",
+     xlab ="2020-2021",
+     main = "Day Time Control Side tower data (blue) and GF GAM Data (red)",
+     col ="red")
+par(new= TRUE)
+plot(day_control_tower_eosense.data$TIMESTAMP[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & day_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],day_control_tower_eosense.data$NEE[day_control_tower_eosense.data $ TIMESTAMP >as.POSIXct("2020-12-12") & day_control_tower_eosense.data $ TIMESTAMP <as.POSIXct("2021-04-12")],
+     ylim=c (-8,5),
+     ylab = "",
+     xlab = "",
+     col ="blue")
+
+
+##save predictions
+
+```
+
+
+
+```{r}
+#save dataframe
+
+write.csv(tower_eo_sense.data,
+          paste(out.path,Sys.Date(),"_Boot_strap_Control_side_gap_filled_via_GAM.csv",sep=""),
+          quote = T,
+          row.names = F)
+```

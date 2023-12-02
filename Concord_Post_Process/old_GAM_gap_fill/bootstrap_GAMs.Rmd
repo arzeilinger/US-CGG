@@ -1,0 +1,156 @@
+---
+title: "Bootstrap GAM"
+output: html_document
+---
+```{r}
+require(dplyr)
+require(mgcv)
+library(mgcv)
+library(ggplot2)
+library(ISLR)
+library(mgcv)
+library(boot)
+require(matrixStats)
+```
+
+#load mud co2 data 
+
+```{r}
+
+root.path<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM_bootstrap\\DATA\\"
+
+
+file1<-paste0("mud")
+
+mud<-read.csv(paste(root.path,file1,".csv",sep=""),
+                header=F,
+                skip=1,
+                na.strings="NAN",
+                stringsAsFactors=F)
+
+colnames(mud)<-colnames(read.csv(paste(root.path,file1,".csv",sep=""),                                                                 na.strings="NaN"))
+
+```
+
+## Mud CO2
+  you choose number of times to be run (line 49)
+  choose sample size (line 55)
+  creates n number of gams (line 56)
+  makes the predictions on each gam (ine 58)
+  unlists and transposes the predictions (lines 61 and 62)
+  puts all in one df (lines 65 and 70)
+  find the mean and the 95% CI for each point  (lines 73 to 87)
+  puts the mean, upper, and lower CI into one dataframe called mean_df (lines 90-92)
+
+```{r}
+#if an error says vector length not the same you may have a column with too many NaN's
+
+
+n<-1:500 ##enter number of times to be run here 
+
+master_mud_pred = list()
+
+for (x in n) 
+  {
+    mud_co2_sample<-sample_n(mud,100)    ####choose sample size #####################
+        gam <- gam(F_CO2_umol~s(elevation,k=5)+s(LE)+s(PAR)+s(TS_5cm),data = mud_co2_sample, method = "REML")
+        #assign(paste("gam_mud_co2",x,sep="_"),gam)         #this is if we want to see each gam and its info separately in the environment on the right 
+    pred_mud_co2<-predict(gam,mud,type="link",se.fit=TRUE,terms=NULL,
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL)
+    mud_co2_pred<- data.frame(matrix(unlist(pred_mud_co2), nrow=length(pred_mud_co2), byrow=TRUE))
+        mud_co2_pred<- as.data.frame(t(mud_co2_pred))
+        mud_co2_pred = subset(mud_co2_pred, select = -c(V2))
+        # mud_co2_pred$x <- x  use this if we want to know which run is which. 
+        master_mud_pred[[x]] <- mud_co2_pred
+        #assign(paste("mud_co2_pred",x,sep="_"),mud_co2_pred)  ##this is if we want to see each prediction separately (has standard error)
+}
+
+#put all the predicted data together 
+master_mud_co2 = do.call(cbind, master_mud_pred)
+
+#find the mean 
+mean<-rowMeans(master_mud_co2, na.rm=TRUE)
+mean_df<- as.data.frame(mean)  #make it a data frame to plot
+
+#find the standard deviation 
+master_mud_co2_matrix<-data.matrix(master_mud_co2, rownames.force = NA)  #to be able to find row stdev, have to convert to numerix matrix
+stdev<-rowSds(master_mud_co2_matrix, na.rm=TRUE)
+stdev_df<- as.data.frame(stdev) #make it a data frame to plot
+
+#find upper lim of CI
+upperlim=mean_df$mean+1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+upperlim_df<- as.data.frame(upperlim)
+
+#find lower lim of CI
+lowerlim=mean_df$mean-1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+lowerlim_df<- as.data.frame(lowerlim)
+
+#put needed values in a dataframe 
+mean_df$lowerCI=lowerlim_df$lowerlim
+mean_df$upperCI=upperlim_df$upperlim
+mean_df$begin_time=mud$begin_time
+  
+  
+```
+
+#plots 
+Two plots, but they are the same. Just different colors
+
+```{r}
+#plots
+plot(mud$begin_time,
+      upperlim_df$upperlim, lty = 'dashed', col = 'red')
+lines(mud$begin_time,
+      lowerlim_df$lowerlim, lty = 'dashed', col = 'red')
+lines(mud$begin_time,
+     mean_df$mean,
+     col="black")
+ legend(900, 15,
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+
+
+
+plot(mud$begin_time,
+       upperlim_df$upperlim,
+       col="green")
+     # pch = 16,)
+lines(mud$begin_time,
+      upperlim_df$upperlim,
+       col="green")
+
+points(mud$begin_time,
+       lowerlim_df$lowerlim,
+       col="blue")
+     # pch = 16,)
+lines(mud$begin_time,
+      lowerlim_df$lowerlim,
+      col="blue")
+points(mud$begin_time,
+     mean_df$mean,
+     col="red")
+      #pch = 16,)
+lines(mud$begin_time
+      ,mean_df$mean,
+     col="red")
+  legend(900, 10,
+         legend = c("upper 95% CI","lower 95% CI","mean"),
+           pch = 16,
+         col = c( "green", "blue","red"),
+         bty = "n")
+  
+```
+
+##save predictions
+
+```{r}
+#save dataframe
+out.path<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM_bootstrap\\DATA\\predicted_data_CI\\"
+write.csv(mean_df,
+          paste(out.path,"mud_co2.csv",sep=""),
+          quote = T,
+          row.names = F)
+```

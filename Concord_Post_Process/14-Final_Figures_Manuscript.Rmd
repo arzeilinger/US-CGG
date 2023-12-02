@@ -1,0 +1,1583 @@
+---
+title: "Final figures for manuscript"
+output: html_notebook
+---
+
+```{r echo = FALSE}
+rm(list=ls())
+
+require(dplyr)
+require(mgcv)
+library(mgcv)
+library(ggplot2)
+library(ISLR)
+library(mgcv)
+library(boot)
+require(matrixStats)
+library(zoo)
+```
+
+
+```{r}
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+```
+
+
+#Defining the data I/O directory
+
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\tfens\\R_REPOS\\Flux_processing\\Concord_R_Code\\Concord_Post_Process\\"
+# root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+#output folder
+out.path<-paste0(root.path, "02_output\\08_manuscript_figures\\")
+
+```
+
+#load the RDA data produced in 12-Concord_bootstrap_GAMS_all
+#Housen uploaded the data as rda files to google drive. 
+```{r}
+
+all_data <-  readRDS (file = "2022-04-20_all_data.rda" )
+
+all_daily_data <- readRDS (file = "2022-04-20_all_data_daily.rda" )
+
+
+
+all_filled_cum_matrix <- readRDS(file = "2022-04-20_all_filled_matrix.rda")
+
+all_filled_matrix <- readRDS(file = "2022-04-20_all_filled_matrix.rda")
+
+all_predict_matrix <- readRDS(file = "2022-04-20_all_predict_matrix.rda")
+
+```
+
+
+#creating 1/2 hour GPP control and treatment side values 
+#sum(nee) = sum(gpp+reco)
+#sum (nee-reco)= sum (gpp)
+ 
+```{r}
+
+######Creating 1/2 hourly GPP variable for post compost##########
+
+#control post compost(Reco predict_control mean or Reco_control_fin)
+#Use Reco_predict control mean and force all nighttime GPP to zero. 
+all_data$all_post_data$GPP_control_mean <- (all_data$all_post_data$NEE_filled_control_mean - all_data$all_post_data$RECO_predict_control_mean)
+
+summary(all_data$all_post_data$GPP_control_mean)
+
+plot(all_data$all_post_data$GPP_control_mean)
+
+#treatment post compost
+all_data$all_post_data$GPP_treatment_mean<- (all_data$all_post_data$NEE_filled_treatment_mean - all_data$all_post_data$RECO_predict_treatment_mean  )
+
+summary(all_data$all_post_data$GPP_treatment_mean)
+
+
+plot(all_data$all_post_data$GPP_treatment_mean)
+
+#######Make all night time GPP zero############ #Need to do this if using reco_predict!
+
+#night time defined as Rg<= 10
+
+#control post compost
+all_data$all_post_data$GPP_control_mean [(all_data$all_post_data$Rg <= 10 )]<-0
+
+plot(all_data$all_post_data$GPP_control_mean)
+
+summary(all_data$all_post_data$GPP_control_mean)
+
+#treatment  post compost
+all_data$all_post_data$GPP_treatment_mean [(all_data$all_post_data$Rg <= 10 )]<-0
+
+##########95% CI for GPP#####################
+
+#making 95% confidence intervals for GPP control post compost
+all_data$all_post_data$GPP_control_q025 <- (all_data$all_post_data$NEE_predict_control_q025 - all_data$all_post_data$RECO_predict_control_q025)
+
+
+all_data$all_post_data$GPP_control_q975 <- (all_data$all_post_data$NEE_predict_control_q975 - all_data$all_post_data$RECO_predict_control_q975)
+
+#making 95% confidence intervals for GPP treatment post compost
+all_data$all_post_data$GPP_treatment_q025 <- (all_data$all_post_data$NEE_predict_treatment_q025 - all_data$all_post_data$RECO_predict_treatment_q025)
+
+
+all_data$all_post_data$GPP_treatment_q975 <- (all_data$all_post_data$NEE_predict_treatment_q975 - all_data$all_post_data$RECO_predict_treatment_q975)
+
+##########plotting 1/2hourly Reco and GPP############
+
+#control post compost
+plot(all_data$all_post_data$TIMESTAMP[(all_data$all_post_data$Rg > 10 )], all_data$all_post_data$GPP_control_mean[(all_data$all_post_data$Rg > 10 )], col='green', ylim = c(-12,6))
+
+
+par(new=TRUE)
+
+plot(all_data$all_post_data$TIMESTAMP, all_data$all_post_data$RECO_predict_control_mean , col='red', ylim = c(-12,6)
+     )
+par(new=TRUE)
+
+plot(all_data$all_post_data$TIMESTAMP, all_data$all_post_data$NEE_filled_control_mean , ylim = c(-12,6))
+
+
+plot(all_data$all_post_data$TIMESTAMP, all_data$all_post_data$GPP_control_mean, ylim = c(-12,6))
+
+#treatment post compost
+plot(all_data$all_post_data$TIMESTAMP[(all_data$all_post_data$Rg > 10 )], all_data$all_post_data$GPP_treatment_mean[(all_data$all_post_data$Rg > 10 )], col='green', ylim = c(-12,6))
+
+
+par(new=TRUE)
+
+plot(all_data$all_post_data$TIMESTAMP, all_data$all_post_data$RECO_predict_treatment_mean , col='red', ylim = c(-12,6)
+     )
+par(new=TRUE)
+
+plot(all_data$all_post_data$TIMESTAMP, all_data$all_post_data$NEE_filled_treatment_mean , ylim = c(-12,6))
+
+
+plot(all_data$all_post_data$TIMESTAMP, all_data$all_post_data$GPP_treatment_mean, ylim = c(-12,6))
+
+```
+
+
+#GPP pre compost variable
+
+```{r}
+######Creating 1/2 hourly GPP variable##########
+
+#control pre compost
+all_data$all_pre_data$GPP_control_mean <- (all_data$all_pre_data$NEE_filled_control_mean - all_data$all_pre_data$RECO_predict_control_mean)
+
+summary(all_data$all_pre_data$GPP_control_mean)
+
+#treatment pre compost
+all_data$all_pre_data$GPP_treatment_mean<- (all_data$all_pre_data$NEE_filled_treatment_mean - all_data$all_pre_data$RECO_predict_treatment_mean  )
+
+summary(all_data$all_pre_data$GPP_treatment_mean)
+
+#######Make all night time GPP zero############ Need to do this since using Reco_predict_mean
+#night time defined as Rg<= 10
+
+# #control pre compost
+all_data$all_pre_data$GPP_control_mean [(all_data$all_pre_data$Rg <= 10 )]<-0
+ 
+# #treatment  pre compost
+all_data$all_pre_data$GPP_treatment_mean [(all_data$all_pre_data$Rg <= 10 )]<-0
+
+##########95% CI for GPP#####################
+
+#making 95% confidence intervals for GPP control pre compost
+all_data$all_pre_data$GPP_control_q025 <- (all_data$all_pre_data$NEE_predict_control_q025 - all_data$all_pre_data$RECO_predict_control_q025)
+
+
+all_data$all_pre_data$GPP_control_q975 <- (all_data$all_pre_data$NEE_predict_control_q975 - all_data$all_pre_data$RECO_predict_control_q975)
+
+#making 95% confidence intervals for GPP treatment pre compost
+all_data$all_pre_data$GPP_treatment_q025 <- (all_data$all_pre_data$NEE_predict_treatment_q025 - all_data$all_pre_data$RECO_predict_treatment_q025)
+
+
+all_data$all_pre_data$GPP_treatment_q975 <- (all_data$all_pre_data$NEE_predict_treatment_q975 - all_data$all_pre_data$RECO_predict_treatment_q975)
+```
+
+
+
+#Left side of Appendix figure showing observed and modeled  treatment side post compost application
+
+####panel (a) half-hourly non-gap filled and half hourly gap filled###
+#panel (b) daily GPP_treatment_mean and Respiration with error lines shaded
+
+
+
+```{r}
+col.code4 <- list(col.name = c( "treatment (modeled)","treatment (observed)"),
+                               
+                  col = c("deepskyblue", "deepskyblue4"))
+
+col.code5 <- list(col.name = c("Reco", "GPP"),
+                
+                  col3 = c("lightcoral", "lightgreen"))
+
+
+
+
+#figure for cumulative and filled NEE and Reco
+
+target.plot.var_nee <- c("NEE_filled_treatment_mean",
+                         "GPP_treatment_mean",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+  expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(GPP ~ ';' ~ Reco~'(' ~ mu ~ mol ~ m ^ {-2 } ~ d ^ { -1 } ~ ')'),
+  expression(Cumulative~sum~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  all_data$all_post_data$TIMESTAMP$mday == 1 &
+    all_data$all_post_data$TIMESTAMP$hour == 0 &
+    all_data$all_post_data$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    all_data$all_post_data$TIMESTAMP[month.loc[1]],
+    all_data$all_post_data$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values
+daily_nee.tmp <-
+  data.frame(
+    date = tapply(
+      all_data$all_post_data$time.id,
+      all_data$all_post_data$Doy_water,
+      min
+    ),
+    daily_nee = tapply(
+      all_data$all_post_data$NEE_filled_treatment_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp = tapply(
+      all_data$all_post_data$GPP_treatment_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco = tapply(
+      all_data$all_post_data$RECO_predict_treatment_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_q025 = tapply(
+      all_data$all_post_data$GPP_treatment_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gppq975 = tapply(
+      all_data$all_post_data$GPP_treatment_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco025 = tapply(
+      all_data$all_post_data$RECO_predict_treatment_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco975 = tapply(
+      all_data$all_post_data$RECO_predict_treatment_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    )
+  )
+
+
+
+
+## begin plot   
+png(
+  paste0(out.path, "NEE_treatment_appendix_model_observed_daily",
+    all_data$all_post_data$TIMESTAMP$year[1] + 1900, "_",
+    all_data$all_post_data$TIMESTAMP$yday[1] + 1, "_",
+    all_data$all_post_data$TIMESTAMP$year[nrow(all_data$all_post_data)] + 1900, "_",
+    all_data$all_post_data$TIMESTAMP$yday[nrow(all_data$all_post_data)] + 1, "_",
+    "NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 1 /2, 1), new = FALSE)
+plot(
+  all_data[[2]]$time.id,
+  all_data[[2]]$NEE_filled_treatment_mean,
+  pch = 20,
+  cex = 0.7,
+  col = col.code4$col[1],
+  las = 1,
+  ylab = "",
+  xlab = "",
+  xaxt = "n",
+  xaxs = "i",
+  #yaxt = "n",
+  ylim = c(-15, 15),
+  cex.axis = 0.8
+)
+
+points(
+  all_data[[2]]$time.id[all_data[[2]]$treatment == "treatment_post_compost"],
+  all_data[[2]]$NEE[all_data[[2]]$treatment == "treatment_post_compost"],
+  pch = 20,
+  cex = 0.7,
+  col = col.code4$col[2]
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+
+#adding panel label
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = 13.5,
+  paste0("(a)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+legend(
+  "topleft",
+  fill = col.code4$col,
+  border = NA,
+  legend = col.code4$col.name,
+  ncol = 2,
+  cex = 0.7,
+  bty = "n"
+)
+
+## panel b
+par(fig = c(0, 1, 0, 1 / 2), new = TRUE)
+plot(
+  daily_nee.tmp$date,
+  daily_nee.tmp$daily_gpp,
+  xlab = "",
+  ylab = "",
+  cex = 0,
+  col = "forestgreen",
+  bg = "forestgreen",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  ylim = c(-10, 10),
+  cex.axis = 0.8
+)
+polygon(c(daily_nee.tmp$date,
+          rev(daily_nee.tmp$date)),
+        c(daily_nee.tmp$daily_reco975 ,
+          rev(daily_nee.tmp$daily_reco025)),
+        col = col.code5$col3[1],
+        border = NA)
+polygon(c(daily_nee.tmp$date,
+          rev(daily_nee.tmp$date)),
+        c(daily_nee.tmp$daily_gppq975 ,
+          rev(daily_nee.tmp$daily_gpp_q025)),
+        col = col.code5$col3[2],
+        border = NA)
+points(
+  daily_nee.tmp$date,
+  daily_nee.tmp$daily_reco,
+  cex = 0.6,
+  col = "red",
+  bg = "red",
+  pch = 21,
+)
+
+points(
+  daily_nee.tmp$date,
+  daily_nee.tmp$daily_gpp,
+  cex = 0.6,
+  col = "forestgreen",
+  bg = "forestgreen",
+  pch = 21,
+)
+
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+#adding panel label
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = 10,
+  paste0("(b)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+  
+  
+)
+
+axis(
+  side = 1,
+  at = all_data$all_post_data$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.92, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+
+
+dev.off()
+```
+
+# Right side of Appendix figure showing observed and modeled  control side post compost application
+
+####panel C half-hourly non-gap filled and half hourly gap filled###
+#panel D daily GPP_control_mean and Respiration with error lines shaded
+
+
+
+```{r}
+col.code3 <- list(col.name = c( "control (modeled)","control (observed)"),
+                               
+                  col = c("firebrick1", "firebrick4"))
+
+
+
+#figure for cumulative and filled NEE and Reco
+
+target.plot.var_nee <- c("NEE_filled_control_mean",
+                         "GPP_control_mean",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+  expression(FC ~ '(' ~ mu ~ mol ~ m ^ {-2 } ~ s ^ { -1 } ~ ')'),
+  expression(GPP ~ ';' ~ Reco~'(' ~ mu ~ mol ~ m ^ {-2 } ~ d ^ { -1 } ~ ')'),
+  expression(Cumulative~sum~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  all_data$all_post_data$TIMESTAMP$mday == 1 &
+    all_data$all_post_data$TIMESTAMP$hour == 0 &
+    all_data$all_post_data$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    all_data$all_post_data$TIMESTAMP[month.loc[1]],
+    all_data$all_post_data$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+
+### daily average values
+daily_nee.tmp_2 <-
+  data.frame(
+    date = tapply(
+      all_data$all_post_data$time.id,
+      all_data$all_post_data$Doy_water,
+      min
+    ),
+    daily_nee = tapply(
+      all_data$all_post_data$NEE_filled_control_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp = tapply(
+      all_data$all_post_data$GPP_control_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco = tapply(
+      all_data$all_post_data$RECO_predict_control_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_q025 = tapply(
+      all_data$all_post_data$GPP_control_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gppq975 = tapply(
+      all_data$all_post_data$GPP_control_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco025 = tapply(
+      all_data$all_post_data$RECO_predict_control_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco975 = tapply(
+      all_data$all_post_data$RECO_predict_control_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    )
+  )
+
+
+
+## begin plot   
+png(
+  paste0(out.path, "NEE_control_appendix_model_observed_daily",
+    all_data$all_post_data$TIMESTAMP$year[1] + 1900, "_",
+    all_data$all_post_data$TIMESTAMP$yday[1] + 1, "_",
+    all_data$all_post_data$TIMESTAMP$year[nrow(all_data$all_post_data)] + 1900, "_",
+    all_data$all_post_data$TIMESTAMP$yday[nrow(all_data$all_post_data)] + 1, "_",
+    "NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 1 /2, 1), new = FALSE)
+plot(
+  all_data[[2]]$time.id,
+  all_data[[2]]$NEE_filled_control_mean,
+  pch = 20,
+  cex = 0.7,
+  col = col.code3$col[1],
+  las = 1,
+  ylab = "",
+  xlab = "",
+  xaxt = "n",
+  xaxs = "i",
+  yaxt = "n",
+  ylim = c(-15, 15),
+  cex.axis = 0.8
+)
+
+points(
+  all_data[[2]]$time.id[all_data[[2]]$treatment == "control_post_compost"],
+  all_data[[2]]$NEE[all_data[[2]]$treatment == "control_post_compost"],
+  pch = 20,
+  cex = 0.7,
+  col = col.code3$col[2]
+)
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+#adding panel label
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = 13.5,
+  paste0("(c)"),
+  adj = c(0, 1),
+  cex = 0.9,
+  
+)
+
+
+
+
+
+# mtext(
+#   side = 2,
+#   target.plot.var_nee.title[[1]],
+#   line = 3,
+#   outer = FALSE,
+#   cex = 0.8
+# )
+
+legend(
+  "topleft",
+  fill = col.code3$col,
+  border = NA,
+  legend = col.code3$col.name,
+  ncol = 2,
+  cex = 0.7,
+  bty = "n"
+)
+
+## panel b
+par(fig = c(0, 1, 0, 1 / 2), new = TRUE)
+plot(
+  daily_nee.tmp_2$date,
+  daily_nee.tmp_2$daily_gpp,
+  xlab = "",
+  ylab = "",
+  cex = 0,
+  col = "forestgreen",
+  bg = "forestgreen",
+  xaxt = "n",
+  las = 1,
+  pch = 21,
+  xaxs = "i",
+  yaxt = "n",
+  ylim = c(-10, 10),
+  cex.axis = 0.8
+)
+polygon(c(daily_nee.tmp_2$date,
+          rev(daily_nee.tmp_2$date)),
+        c(daily_nee.tmp_2$daily_reco975 ,
+          rev(daily_nee.tmp_2$daily_reco025)),
+        col = col.code5$col3[1],
+        border = NA)
+polygon(c(daily_nee.tmp_2$date,
+          rev(daily_nee.tmp_2$date)),
+        c(daily_nee.tmp_2$daily_gppq975 ,
+          rev(daily_nee.tmp_2$daily_gpp_q025)),
+        col = col.code5$col3[2],
+        border = NA)
+points(
+  daily_nee.tmp_2$date,
+  daily_nee.tmp_2$daily_reco,
+  cex = 0.6,
+  col = "red",
+  bg = "red",
+  pch = 21,
+)
+
+points(
+  daily_nee.tmp_2$date,
+  daily_nee.tmp_2$daily_gpp,
+  cex = 0.6,
+  col = "forestgreen",
+  bg = "forestgreen",
+  pch = 21,
+)
+
+
+abline(
+  v = 2020 + 290 / 366,
+  col = "red",
+  lwd = 2,
+  lty = 4
+)
+abline(h = 0, col = "black")
+abline(v = daily_nee.tmp$date[366], lwd= 1.5, col = "black")
+
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = 10,
+  paste0("(d)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+# mtext(
+#   side = 2,
+#   target.plot.var_nee.title[[2]],
+#   line = 3,
+#   outer = FALSE,
+#   cex = 0.8
+#   
+#   
+# )
+
+axis(
+  side = 1,
+  at = all_data$all_post_data$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = all_data$all_post_data$time.id[1],
+  y = 1200,
+  paste0("(c)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+
+axis(
+  side = 1,
+  at = c(2019.75, 2020.92, 2021.17),
+  label = c(2019, 2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  "Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+
+
+dev.off()
+```
+
+#Figure three. First chunk of code will be for left panel which shows pre-compost application. Second chunk of codes will be for right panel which shows post-compost application cumulative sums. 
+
+
+#Figure 3. left panel. pre-compost application. 
+**Top panel: NEE**
+**Middle panel: GPP**
+**Bottom panel: Reco**
+
+```{r}
+col.code2 <- list(col.name = c("control", "treatment"),
+                  col = c("firebrick1", "deepskyblue"))
+
+#figure for cumulative and filled NEE and Reco
+
+target.plot.var_nee <- c("NEE_filled_treatment_mean",
+                         "GPP_treatment_mean",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+   expression(Cumulative~sum~NEE~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),
+  expression(Cumulative~sum~GPP~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),
+  expression(Cumulative~sum~Reco~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  all_data$all_pre_data$TIMESTAMP$mday == 1 &
+    all_data$all_pre_data$TIMESTAMP$hour == 0 &
+    all_data$all_pre_data$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    all_data$all_pre_data$TIMESTAMP[month.loc[1]],
+    all_data$all_pre_data$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values treatment and control side
+daily_nee.tmp_3 <-
+  data.frame(
+    date = tapply(
+      all_data$all_pre_data$time.id,
+      all_data$all_pre_data$Doy_water,
+      min
+    ),
+
+
+    ############################################
+    #Daily GPP and error ranges for the treatment side
+    daily_gpp_treatment = tapply(
+      all_data$all_pre_data$GPP_treatment_mean,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_treatment_q025 = tapply(
+      all_data$all_pre_data$GPP_treatment_q025,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_treatment_q975 = tapply(
+      all_data$all_pre_data$GPP_treatment_q975,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+
+    
+    #################################################
+    #Daily reco and error ranges for the treatment side
+    daily_reco_treatment = tapply(
+      all_data$all_pre_data$RECO_predict_treatment_mean,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+     daily_reco_treatment_q025 = tapply(
+      all_data$all_pre_data$RECO_predict_treatment_q025,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    daily_reco_treatment_q975 = tapply(
+      all_data$all_pre_data$RECO_predict_treatment_q975,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+
+    ############################################
+    
+    #Daily GPP and error ranges for the control side
+    daily_gpp_control = tapply(
+      all_data$all_pre_data$GPP_control_mean,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_control_q025 = tapply(
+      all_data$all_pre_data$GPP_control_q025,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_control_q975 = tapply(
+      all_data$all_pre_data$GPP_control_q975,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    
+    #################################################
+   
+    #Daily reco and error ranges for the control side
+   daily_reco_control = tapply(
+      all_data$all_pre_data$RECO_predict_control_mean,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+     daily_reco_control_q025 = tapply(
+      all_data$all_pre_data$RECO_predict_control_q025,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    ),
+    daily_reco_control_q975 = tapply(
+      all_data$all_pre_data$RECO_predict_control_q975,
+      all_data$all_pre_data$Doy_water,
+      na.mean
+    )
+  )
+############
+
+
+
+## convert NEE, GPP, Reco to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:13) {
+  # convert to daily units
+  daily_nee.tmp_3[, ll] <-
+    daily_nee.tmp_3[, ll] * 12 / 1000000 * 1800 * 48
+  daily_nee.tmp_3[is.na(daily_nee.tmp_3[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_nee.tmp_3[1:365, ll] <-
+    cumsum(daily_nee.tmp_3[1:365, ll])
+  daily_nee.tmp_3[366:nrow(daily_nee.tmp_3), ll] <-
+    cumsum(daily_nee.tmp_3[366:nrow(daily_nee.tmp_3), ll])
+  
+  # set break (missing value) between two years
+  daily_nee.tmp_3[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Cumulative_NEE_GPP_Reco_pre_compost_concord",
+    all_data$all_pre_data$TIMESTAMP$year[1] + 1900, "_",
+    all_data$all_pre_data$TIMESTAMP$yday[1] + 1, "_",
+    all_data$all_pre_data$TIMESTAMP$year[nrow(all_data$all_pre_data)] + 1900, "_",
+    all_data$all_pre_data$TIMESTAMP$yday[nrow(all_data$all_pre_data)] + 1, "_",
+    "NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 2 / 3, 1), new = FALSE)
+plot(all_data[[1]]$time.id,
+     all_data[[1]]$NEE_filled_cum_control_mean,
+     
+     type = "l",
+     lwd=4,
+     col = col.code2$col[1],
+     las = 1,
+     xaxt = "n",
+     xaxs ="i",
+     ylab = "",
+     xlab = "",
+     cex.axis = 0.8,
+     ylim = c(-100, 250))
+
+
+lines(all_data[[1]]$time.id,
+       all_data[[1]]$NEE_filled_cum_treatment_mean,
+       
+      lty = 1,
+     lwd=4,
+       col = col.code2$col[2])
+lines(all_data[[1]]$time.id,
+      all_data[[1]]$NEE_filled_cum_control_q025,
+      col = col.code2$col[1],
+      lty = 2)
+lines(all_data[[1]]$time.id,
+      all_data[[1]]$NEE_filled_cum_control_q975,
+      col = col.code2$col[1],
+      lty = 2)
+lines(all_data[[1]]$time.id,
+      all_data[[1]]$NEE_filled_cum_treatment_q025,
+      col = col.code2$col[2],
+      lty = 2)
+lines(all_data[[1]]$time.id,
+      all_data[[1]]$NEE_filled_cum_treatment_q975,
+      col = col.code2$col[2],
+      lty = 2)
+
+legend("topleft",
+       fill = col.code2$col,
+       border = NA,
+       legend = col.code2$col.name,
+       ncol = 2,
+       cex = 0.75,
+       bty = "n")
+abline(h = 0, col = "black")
+
+mtext(
+  side = 2,
+  at = 40,
+  target.plot.var_nee.title[[1]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.6
+)
+text(
+  x = all_data$all_pre_data$time.id[50],
+  y = 190,
+  paste0("(a)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+
+## panel b Cumulative GPP
+par(fig = c(0, 1, 1 / 3, 2 / 3), new = TRUE)
+
+plot(
+  daily_nee.tmp_3$date,
+  daily_nee.tmp_3$daily_gpp_treatment,
+  type = "l",
+     lwd=4,
+     col = col.code2$col[2],
+     las = 1,
+     xaxt = "n",
+     xaxs ="i",
+     ylab = "",
+     xlab = "",
+  ylim = c(-800, 10),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_gpp_treatment_q025,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_gpp_treatment_q975,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_gpp_control,
+      lwd = 4,
+     col = col.code2$col[1],
+      lty = 1
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_gpp_control_q025,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_gpp_control_q975,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[2]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.6
+)
+
+text(
+  x = all_data$all_pre_data$time.id[50],
+  y = -120,
+  paste0("(b)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+abline(h = 0, col = "black")
+
+
+
+## panel c cumulative Reco
+par(fig = c(0, 1, 0, 1 / 3), new = TRUE)
+
+plot(
+  daily_nee.tmp_3$date,
+  daily_nee.tmp_3$daily_reco_treatment,
+  type = "l",
+     lwd=4,
+     col = col.code2$col[2],
+     xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  ylim = c(-30, 1500),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_reco_treatment_q025,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_reco_treatment_q975,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_reco_control,
+      lwd = 4,
+     col = col.code2$col[1],
+      lty = 1
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_reco_control_q025,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_3$date,
+      daily_nee.tmp_3$daily_reco_control_q975,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+
+
+
+
+
+
+abline(h = 0, col = "black")
+
+
+axis(
+  side = 1,
+  at = all_data$all_pre_data$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = all_data$all_pre_data$time.id[50],
+  y = 1400,
+  paste0("(c)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+mtext(
+  side = 2,
+  target.plot.var_nee.title[[3]],
+  line = 3,
+  outer = FALSE,
+  cex = 0.6
+)
+
+axis(
+  side = 1,
+  at = c(2019.87, 2020.2),
+  label = c(2019, 2020),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  " Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```
+#Figure 3 right panel. post compost application
+
+**Top panel: NEE**
+**Middle panel: GPP**
+**Bottom panel: Reco**
+
+```{r}
+col.code2 <- list(col.name = c("control", "treatment"),
+                  col = c("firebrick1", "deepskyblue"))
+
+#figure for cumulative and filled NEE and Reco
+
+target.plot.var_nee <- c("NEE_filled_treatment_mean",
+                         "GPP_treatment_mean",
+                         "blank")
+
+target.plot.var_nee.title <- c(
+   expression(Cumulative~sum~NEE~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),
+  expression(Cumulative~sum~GPP~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')'),
+  expression(Cumulative~sum~Reco~ '(' ~ g ~ C ~ m ^ {-2 } ~ ')')
+)
+
+## locate the start of each month
+month.loc <- which(
+  all_data$all_post_data$TIMESTAMP$mday == 1 &
+    all_data$all_post_data$TIMESTAMP$hour == 0 &
+    all_data$all_post_data$TIMESTAMP$min == 0
+)
+month.ticks <-
+  substr(seq(
+    all_data$all_post_data$TIMESTAMP[month.loc[1]],
+    all_data$all_post_data$TIMESTAMP[month.loc[length(month.loc)]],
+    by = "months"
+  ), 6, 7)
+
+## daily average values treatment and control side
+daily_nee.tmp_4 <-
+  data.frame(
+    date = tapply(
+      all_data$all_post_data$time.id,
+      all_data$all_post_data$Doy_water,
+      min
+    ),
+
+
+    ############################################
+    #Daily GPP and error ranges for the treatment side
+    daily_gpp_treatment = tapply(
+      all_data$all_post_data$GPP_treatment_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_treatment_q025 = tapply(
+      all_data$all_post_data$GPP_treatment_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_treatment_q975 = tapply(
+      all_data$all_post_data$GPP_treatment_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+
+    
+    #################################################
+    #Daily reco and error ranges for the treatment side
+    daily_reco_treatment = tapply(
+      all_data$all_post_data$RECO_predict_treatment_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+     daily_reco_treatment_q025 = tapply(
+      all_data$all_post_data$RECO_predict_treatment_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco_treatment_q975 = tapply(
+      all_data$all_post_data$RECO_predict_treatment_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+
+    ############################################
+    
+    #Daily GPP and error ranges for the control side
+    daily_gpp_control = tapply(
+      all_data$all_post_data$GPP_control_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_control_q025 = tapply(
+      all_data$all_post_data$GPP_control_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_gpp_control_q975 = tapply(
+      all_data$all_post_data$GPP_control_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    
+    #################################################
+   
+    #Daily reco and error ranges for the control side
+   daily_reco_control = tapply(
+      all_data$all_post_data$RECO_predict_control_mean,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+     daily_reco_control_q025 = tapply(
+      all_data$all_post_data$RECO_predict_control_q025,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    ),
+    daily_reco_control_q975 = tapply(
+      all_data$all_post_data$RECO_predict_control_q975,
+      all_data$all_post_data$Doy_water,
+      na.mean
+    )
+  )
+############
+
+
+
+## convert NEE, GPP, Reco to cumulative sum of carbon
+# convert to cumulative carbon
+for(ll in 2:13) {
+  # convert to daily units
+  daily_nee.tmp_4[, ll] <-
+    daily_nee.tmp_4[, ll] * 12 / 1000000 * 1800 * 48
+  daily_nee.tmp_4[is.na(daily_nee.tmp_4[, ll]), ll] <- 0
+  
+  # calculate cumulative sum, hard-coded with first/second years
+  daily_nee.tmp_4[1:365, ll] <-
+    cumsum(daily_nee.tmp_4[1:365, ll])
+  daily_nee.tmp_4[366:nrow(daily_nee.tmp_4), ll] <-
+    cumsum(daily_nee.tmp_4[366:nrow(daily_nee.tmp_4), ll])
+  
+  # set break (missing value) between two years
+  daily_nee.tmp_4[366, ll] <- NA
+}
+
+## begin plot   
+png(
+  paste0(out.path, "Cumulative_NEE_GPP_Reco_post_compost_concord",
+    all_data$all_post_data$TIMESTAMP$year[1] + 1900, "_",
+    all_data$all_post_data$TIMESTAMP$yday[1] + 1, "_",
+    all_data$all_post_data$TIMESTAMP$year[nrow(all_data$all_post_data)] + 1900, "_",
+    all_data$all_post_data$TIMESTAMP$yday[nrow(all_data$all_post_data)] + 1, "_",
+    "NEE_",
+    Sys.Date(), ".png"
+  ),
+  width = 5.5,
+  height = 6,
+  units = "in",
+  res = 300,
+  pointsize = 11,
+  bg = "white"
+)
+par(oma = c(4, 4.5, 0.5, 0.5),
+    mar = c(0, 0, 0.25, 0))
+
+par(fig = c(0, 1, 2 / 3, 1), new = FALSE)
+plot(all_data[[2]]$time.id,
+     all_data[[2]]$NEE_filled_cum_control_mean,
+     
+     type = "l",
+     lwd=4,
+     col = col.code2$col[1],
+     las = 1,
+     xaxt = "n",
+     xaxs ="i",
+     yaxt = "n",
+     ylab = "",
+     xlab = "",
+     cex.axis = 0.8,
+     ylim = c(-100, 250))
+
+
+lines(all_data[[2]]$time.id,
+       all_data[[2]]$NEE_filled_cum_treatment_mean,
+       
+      lty = 1,
+     lwd=4,
+       col = col.code2$col[2])
+lines(all_data[[2]]$time.id,
+      all_data[[2]]$NEE_filled_cum_control_q025,
+      col = col.code2$col[1],
+      lty = 2)
+lines(all_data[[2]]$time.id,
+      all_data[[2]]$NEE_filled_cum_control_q975,
+      col = col.code2$col[1],
+      lty = 2)
+lines(all_data[[2]]$time.id,
+      all_data[[2]]$NEE_filled_cum_treatment_q025,
+      col = col.code2$col[2],
+      lty = 2)
+lines(all_data[[2]]$time.id,
+      all_data[[2]]$NEE_filled_cum_treatment_q975,
+      col = col.code2$col[2],
+      lty = 2)
+
+# legend("topleft",
+#        fill = col.code2$col,
+#        border = NA,
+#        legend = col.code2$col.name,
+#        ncol = 2,
+#        cex = 0.75,
+#        bty = "n")
+abline(h = 0, col = "black")
+
+# mtext(
+#   side = 2,
+#   at = 40,
+#   target.plot.var_nee.title[[1]],
+#   line = 3,
+#   outer = FALSE,
+#   cex = 0.6
+# )
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = 190,
+  paste0("(d)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+
+## panel b Cumulative GPP
+par(fig = c(0, 1, 1 / 3, 2 / 3), new = TRUE)
+
+plot(
+  daily_nee.tmp_4$date,
+  daily_nee.tmp_4$daily_gpp_treatment,
+  type = "l",
+     lwd=4,
+     col = col.code2$col[2],
+     las = 1,
+     xaxt = "n",
+     xaxs ="i",
+      yaxt = "n",
+     ylab = "",
+     xlab = "",
+  ylim = c(-800, 10),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_gpp_treatment_q025,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_gpp_treatment_q975,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_gpp_control,
+      lwd = 4,
+     col = col.code2$col[1],
+      lty = 1
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_gpp_control_q025,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_gpp_control_q975,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+
+# mtext(
+#   side = 2,
+#   target.plot.var_nee.title[[2]],
+#   line = 3,
+#   outer = FALSE,
+#   cex = 0.6
+# )
+
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = -120,
+  paste0("(e)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+abline(h = 0, col = "black")
+
+
+
+## panel c cumulative Reco
+par(fig = c(0, 1, 0, 1 / 3), new = TRUE)
+
+plot(
+  daily_nee.tmp_4$date,
+  daily_nee.tmp_4$daily_reco_treatment,
+  type = "l",
+     lwd=4,
+     col = col.code2$col[2],
+     xlab = "",
+  ylab = "",
+  xaxt = "n",
+  las = 1,
+  xaxs = "i",
+  yaxt = "n",
+  ylim = c(-30, 1500),
+  cex.axis = 0.8
+)
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_reco_treatment_q025,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_reco_treatment_q975,
+      lwd = 1,
+     col = col.code2$col[2],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_reco_control,
+      lwd = 4,
+     col = col.code2$col[1],
+      lty = 1
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_reco_control_q025,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+lines(daily_nee.tmp_4$date,
+      daily_nee.tmp_4$daily_reco_control_q975,
+      lwd = 1,
+     col = col.code2$col[1],
+      lty = 2
+      )
+
+
+
+
+
+
+
+abline(h = 0, col = "black")
+
+
+axis(
+  side = 1,
+  at = all_data$all_post_data$time.id[month.loc],
+  labels = month.ticks,
+  tck = -.025,
+  cex.axis = 0.8
+)
+
+text(
+  x = all_data$all_post_data$time.id[50],
+  y = 1400,
+  paste0("(f)"),
+  adj = c(0, 1),
+  cex = 0.9
+)
+
+# mtext(
+#   side = 2,
+#   target.plot.var_nee.title[[3]],
+#   line = 3,
+#   outer = FALSE,
+#   cex = 0.6
+# )
+
+axis(
+  side = 1,
+  at = c(2020.87, 2021.2),
+  label = c(2020, 2021),
+  cex.axis = 0.8,
+  tck = -.025,
+  lty = 0,
+  bty = "n",
+  line = 0.9
+)
+
+mtext(
+  side = 1,
+  " Month / Year",
+  line = 3,
+  outer = FALSE,
+  cex = 0.8
+)
+
+
+dev.off()
+```

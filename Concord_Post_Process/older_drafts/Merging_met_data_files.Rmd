@@ -1,0 +1,58 @@
+---
+title: "Merging multiple MET spreadsheets"
+output: html_notebook
+---
+
+#Confusing with MET Data, because after each program update we changed some column names and added new ones. essentially dropping and then adding
+```{r}
+path <- "C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\01_Proccessed_Data\\met_data"
+merge_file_name <- "C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\01_Proccessed_Data\\met_data\\merged_file.csv"
+
+file_read<-function(filename){
+  print(paste("Merging",filename,sep = " "))
+  read.csv(filename,
+           header=F,
+           skip=4,
+           na.strings=c("NAN"),
+           stringsAsFactors = F)
+}
+
+filenames1 <- list.files(path= path, full.names=TRUE)[c(1:4)]
+filenames2 <- list.files(path= path, full.names=TRUE)[c(5:10)]
+
+All1 <- lapply(filenames1,file_read)
+All2 <- lapply(filenames2,file_read)
+
+df1 <- do.call(rbind.data.frame, All1)
+df2 <- do.call(rbind.data.frame, All2)
+
+colnames(df1)<-colnames(read.csv(filenames1[1],
+           header=T,
+           skip=1,
+           na.strings=c("NAN"),
+           stringsAsFactors = F))
+
+colnames(df2)<-colnames(read.csv(filenames2[1],
+           header=T,
+           skip=1,
+           na.strings=c("NAN"),
+           stringsAsFactors = F))
+colnames(df2)[colnames(df2)%in%colnames(df1)]
+colnames(df2)[!colnames(df2)%in%colnames(df1)]
+colnames(df1)[!colnames(df1)%in%colnames(df2)]
+
+plot(df1$PTemp_C_Avg)
+
+df1<-df1[-which(duplicated(df1$TIMESTAMP)),]
+#df2<-df2[-which(duplicated(df2$TIMESTAMP)),]
+
+df1<-df1[,which(colnames(df1)%in%colnames(df2))]
+df1<-df1[,sort(colnames(df1))]
+colnames(df1)
+
+
+
+write.csv(df,merge_file_name)
+```
+
+

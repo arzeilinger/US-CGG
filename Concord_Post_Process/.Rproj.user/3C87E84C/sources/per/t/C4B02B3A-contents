@@ -1,0 +1,48 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+rm(list=ls())
+
+
+library(stringr)
+library(zoo)
+require(stringr)
+require(zoo)
+library(rmarkdown)
+
+source("concord_filter.R")
+source("cospectra_plot3.R")
+na.count<-function(x) sum(is.na(x))
+```
+
+
+```{r}
+## change root.path as needed
+#root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord\\"
+eddypro.path<-paste0(root.path,"01_Processed_Data\\Master_Eddy\\") ## this is where the EddyPro outputs located
+plot.path<-paste0(root.path,"01_Processed_Data\\spectrum_plot\\") ## this is where the output plots located
+
+```
+
+```{r}
+## use follows to specify the versions of EddyPro outputs
+#cdata.proc.case<-"spectral_data"
+cdata.proc.time<-"2020-04-17T161020"
+cdata.proc.ext<-"_adv"
+
+#20190614-1700_binned_cospectra_2020-04-17T161020_adv
+##############################################################
+## handle full output file
+# file name
+cdata.file2<-paste0("master_eddy_pro_concord.csv")
+```
+
+

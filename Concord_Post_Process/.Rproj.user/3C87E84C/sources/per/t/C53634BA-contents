@@ -1,0 +1,237 @@
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+
+source("concord_filter.R")
+source("cospectra_plot3.R")
+na.count<-function(x) sum(is.na(x))
+
+## change root.path as needed
+#root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord\\"
+eddypro.path<-paste0(root.path,"01_Processed_Data\\Master_Eddy\\") ## this is where the EddyPro outputs located
+plot.path<-paste0(root.path,"01_Processed_Data\\spectrum_plot\\") ## this is where the output plots located
+
+## use follows to specify the versions of EddyPro outputs
+#cdata.proc.case<-"spectral_data"
+cdata.proc.time<-"2020-04-17T161020"
+cdata.proc.ext<-"_adv"
+#20190614-1700_binned_cospectra_2020-04-17T161020_adv
+##############################################################
+## handle full output file
+# file name
+cdata.file2<-paste0("master_eddy_pro_concord.csv")
+
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\master_eddy_pro_concord.csv"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\eddypro_binned_cospectra"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\eddypro_full_cospectra"
+#"C:\Users\Tommy\flux\Data-exploring\02_Concord\01_Proccessed_Data\Master_Eddy\spectrum_plot"
+
+
+## read in full output file
+cdata<-read.csv(paste(eddypro.path,cdata.file2,sep=""),
+                skip=3,
+                header=F,
+                na.strings="-9999",
+                stringsAsFactors=F)
+colnames(cdata)<-colnames(read.csv(paste(eddypro.path,cdata.file2,sep=""),
+                                   skip=1,
+                                   header=T,
+                                   na.strings="NaN"))
+
+cdata<-cdata[cdata$filename!="not_enough_data"&
+               !is.na(cdata$used_records),]
+
+datetime<-data.frame(datetime=paste0(cdata$date," ",cdata$time))
+TIMESTAMP<-strptime(datetime$datetime,format="%m/%d/%Y %H:%M",tz="EST")
+
+#############################################################
+## Unit conversion & site-specified filtering
+
+cdata<-concord_filter(data.in=cdata)
+
+
+##############################################################
+## Generic time series plot
+target.plot.var<-c("co2_flux","LE","H","u.",
+                   "co2_mixing_ratio","h2o_mixing_ratio",
+                   "air_temperature","RH",
+                   "wind_speed","wind_dir","mean_value_RSSI_LI.7500")
+target.plot.var.title<-c(expression(FC~'('~mu~mol~m^{-2}~s^{-1}~')'),
+                         expression(LE~'('~W~m^{-2}~')'),
+                         expression(H~'('~W~m^{-2}~')'),
+                         expression(u~star~'('~m~s^{-1}~')'),
+                         expression(CO[2]~'('~ppm~')'),
+                         expression(Water~vapor~'('~ppt~')'),
+                         expression(Air~temperature~'('~degree~C~')'),
+                         expression(Relative~humidity~'('~percentage~')'),
+                         expression(Wind~speed~'('~m~s^{-1}~')'),
+                         expression(Wind~direction~'('~degree~')'),
+                         expression(LI7500~signal~strengh ~'('~'-'~')'))
+
+for(k1 in 1:length(target.plot.var)){
+  png(paste0(plot.path,
+             "Concord_",
+             TIMESTAMP$year[1]+1900,"_",
+             TIMESTAMP$yday[1]+1,"_",
+             TIMESTAMP$year[length(TIMESTAMP)]+1900,"_",
+             TIMESTAMP$yday[length(TIMESTAMP)]+1,"_",
+             target.plot.var[k1],"_",
+             Sys.Date(),".png"),
+      width=5,
+      height=3.5,
+      units="in",
+      res=200,
+      pointsize = 12,
+      bg = "white")
+  
+  par(oma=c(0.5,0.5,0.5,0.5),mar=c(4.5,4.5,0,0))
+  plot(TIMESTAMP,
+       cdata[,target.plot.var[k1]],
+       xlab="TIMESTAMP",
+       ylab=target.plot.var.title[k1],
+       cex=0.5,col="grey",
+       las=1,
+       xaxs="i",yaxs="i"
+       )
+  loess.tmp<-loess(cdata[,target.plot.var[k1]]~c(1:nrow(cdata)),span=0.05)
+  lines(TIMESTAMP[round(loess.tmp$x)],
+        loess.tmp$fitted,
+        lwd=1.5,col="red")
+  
+  dev.off()
+}
+
+
+
+##############################################################
+################### work on (co)spectra data ##############################
+zL.cut.rng<-c(-5,-0.1,0.1,1) ## setting the 3 Z/L ranges for plotting
+cspec.data.pre<-NULL
+
+data.pre<-cdata  
+
+## work on file name of spectrum files
+cspec.name.ls.parse<-paste(TIMESTAMP$year+1900,
+                           sprintf("%02d",TIMESTAMP$mon+1),
+                           sprintf("%02d",TIMESTAMP$mday),
+                           "-",
+                           sprintf("%02d",TIMESTAMP$hour),
+                           sprintf("%02d",TIMESTAMP$min),
+                           "_binned_cospectra",
+                           sep="")
+
+## scan if spectrum files exist
+cspec.name.ls<-rep(NA,length(cspec.name.ls.parse))
+cspec.file.exist<-rep(FALSE,length(cspec.name.ls.parse))
+cspec.file.ls<-list.files(paste0(eddypro.path,"eddypro_binned_cospectra\\"))
+for(i in 1:length(cspec.file.exist)){
+  cspec.name.ls[i]<-cspec.file.ls[which(grepl(cspec.name.ls.parse[i],
+                                              cspec.file.ls))[1]]
+  cspec.file.exist[i]<-ifelse(!is.na(cspec.name.ls[i]),
+                              TRUE,
+                              FALSE)
+}
+
+cspec.var.name<-c("n.f","f","fh.u","fSu","fSv","fSw","fSt","fSc","fSq","fSm","fSn",
+                  "fCwu","fCwv","fCwt","fCwc","fCwq","fCwm","fCwn")
+cspec.var.name.select<-c("n.f","f","fh.u","fSu","fSv","fSw","fSt","fSc","fSq",
+                         "fCwu","fCwv","fCwt","fCwc","fCwq")
+
+## which spectrum variables to plot 
+target.cspec<-c("fSw","fSt","fSc","fSq",
+                "fCwu","fCwt","fCwc","fCwq")
+
+### loop through the spetrum files, combine them into a single dataframe for plotting
+month.id<-paste0(TIMESTAMP$year+1900,"-",sprintf("%02d",TIMESTAMP$mon+1))
+month.id.ls<-list(names(table(month.id)),
+                  as.vector(table(month.id)))
+
+for(j1 in 1:length(month.id.ls[[1]])){
+  
+  cspec.data.pre<-data.frame()
+  target.mon<-month.id.ls[[1]][j1]
+  target.mon.loc<-which(month.id==target.mon)
+  
+  print(paste0("######  ",target.mon,"  ######"))
+  
+  for(i1 in 1:length(cspec.name.ls[target.mon.loc])){
+    if(cspec.file.exist[target.mon.loc][i1]){
+      
+      ## read in each (co)spectra files
+      cspec.data<-read.csv(paste(eddypro.path,
+                                 "eddypro_binned_cospectra\\",
+                                 cspec.name.ls[target.mon.loc][i1],sep=""),
+                           skip=11,
+                           header=T,
+                           na.strings=c("-9999","-9999.0"))
+      
+      colnames(cspec.data)<-cspec.var.name
+      
+      ## combine spetrum data with basic state variables, e.g., WS, WD
+      cspec.data.tmp<-data.frame(date=rep(data.pre$date[target.mon.loc][i1],nrow(cspec.data)),
+                                 time=rep(data.pre$time[target.mon.loc][i1],nrow(cspec.data)),
+                                 zL=rep(data.pre$X.z.d..L[target.mon.loc][i1],nrow(cspec.data)),
+                                 L=rep(data.pre$L[target.mon.loc][i1],nrow(cspec.data)),
+                                 WS=rep(data.pre$wind_speed[target.mon.loc][i1],nrow(cspec.data)),
+                                 WD=rep(data.pre$wind_dir[target.mon.loc][i1],nrow(cspec.data)),
+                                 cspec.data[,cspec.var.name.select])
+      
+      ### filter spetrum data based on corresponding variance/covariance
+      
+      if(is.na(data.pre$u.[target.mon.loc][i1])){
+        cspec.data.tmp$fSu<-NA
+        cspec.data.tmp$fCwu<-NA
+        cspec.data.tmp$fSv<-NA
+        cspec.data.tmp$fCwv<-NA
+        cspec.data.tmp$fSw<-NA
+      }
+      if(is.na(data.pre$H[target.mon.loc][i1])){
+        cspec.data.tmp$fSt<-NA
+        cspec.data.tmp$fCwt<-NA
+      }
+      if(is.na(data.pre$co2_flux[target.mon.loc][i1])){
+        cspec.data.tmp$fSc<-NA
+        cspec.data.tmp$fCwc<-NA
+      }
+      if(is.na(data.pre$LE[target.mon.loc][i1])){
+        cspec.data.tmp$fSq<-NA
+        cspec.data.tmp$fCwq<-NA
+      }
+      cspec.data.pre<-rbind.data.frame(cspec.data.pre,cspec.data.tmp)
+    }else{
+      print(paste(cspec.name.ls.parse[target.mon.loc][i1],"has no spectrum files"))  
+    }                       
+  }
+  
+  ### output site-specific (co)spectra file (composite all records)
+  write.csv(cspec.data.pre,
+            paste0(plot.path,
+                   target.mon,
+                   "_cospectra_compiled_",
+                   Sys.Date(),".csv",
+                   sep=""),
+            row.names=F)
+  
+  #### loop through the target.var, do spetrum plotting 
+  for(m2 in 1:length(target.cspec)){
+    
+    cospectra_plot3(cspec.data.pre=cspec.data.pre,
+                    target.var=target.cspec[m2], 
+                    case="Concord",
+                    year=TIMESTAMP$year[target.mon.loc][1]+1900,
+                    doy.i=TIMESTAMP$yday[target.mon.loc][1]+1,
+                    doy.f=TIMESTAMP$yday[target.mon.loc][length(target.mon.loc)]+1,
+                    output=T,
+                    outDir=plot.path,
+                    plot.loess=T,
+                    postfix=paste0("_",Sys.Date()),
+                    log.y.value=T,
+                    zL.cut.rng=zL.cut.rng)  
+    
+  }
+}
+
+

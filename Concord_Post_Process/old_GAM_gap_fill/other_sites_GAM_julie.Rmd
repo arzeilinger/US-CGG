@@ -1,0 +1,1060 @@
+---
+title: "GAM_other_sites"
+output: html_document
+---
+#https://noamross.github.io/gams-in-r-course/chapter1 
+
+```{r, include=FALSE}
+
+install.packages("lme4")
+
+install.packages("ggplot2")
+
+install.packages("cowplot")
+
+
+```
+
+## load data
+
+```{r}
+
+require(mgcv)
+library(lme4)
+library(ggplot2)
+library(cowplot)
+library(tidyverse)
+library(ggpubr)
+
+
+root.path<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\"
+
+cdata.file1<-paste0("Weston_et_al_2014_4_GAM_2")
+
+
+wes<-read.csv(paste(root.path,cdata.file1,".csv",sep=""),
+                header=F,
+                skip=1,
+                na.strings="NA",
+                stringsAsFactors=F)
+
+
+colnames(wes)<-colnames(read.csv(paste(root.path,cdata.file1,".csv",sep=""),                                                                 na.strings="NaN"))
+
+
+
+```
+
+## Plots and linear regression for co2 chamber fluxes
+
+```{r}
+
+##for co2 chamber fluxes 
+ggplot(data = wes, aes(x = sample_year, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_month, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_day, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = cond, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x =biomass, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = ppt, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = tmean, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = tmax, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = vpd, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+### for CO2, ppt and biomass had the strongest relationships 
+linear_model<- lm(co2_flux~ sample_month, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ sample_year, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ sample_day, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ cond, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ biomass, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ ppt, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ tmean, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ tmax, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ vpd, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+
+```
+
+
+##plots and linear regressions for ch4 fluxes 
+
+
+```{r}
+
+ggplot(data = wes, aes(x = sample_year, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_month, y = ch4_flux )) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_day, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = conductivity, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x =biomass_above, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = ppt, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = tmean..degrees.C., y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = tmax..degrees.C., y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = vpdmax..hPa., y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+### for ch4 tmean, tmax, and vpd had strongest relationships 
+linear_model<- lm(ch4_flux~ sample_month, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ sample_year, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ sample_day, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ conductivity, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ biomass_above, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ ppt, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ tmean..degrees.C., data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ tmax..degrees.C., data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ vpdmax..hPa., data = wes)
+summary(linear_model)
+plot(linear_model)
+
+
+
+plot(wes$p.biomass)
+
+
+
+```
+
+# fill variables with gaps from linear relationships 
+
+```{r}
+
+##predict biomass from TA?
+linear_model<- lm(biomass~ tmean+sample_month, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+#ppt 0.01 *** 
+#tmean 0.27 ***
+#tmax 0.239 ***
+#vpd 0.2 
+#sample day 0.057 ***
+#sample month 10.3  ***
+#sample year 0.018  *** 
+#sample year and sample month  
+# sample year, month and day 
+
+wes$p.biomass<- predict.lm(linear_model, wes)
+
+
+
+
+##predict cond from something else? 
+#ppt 7.6% *** 
+#tmean 2.7% * 
+#tmax 3.6% ** 
+#vpd 0.07% 
+#sample day 8.4% ***
+#sample month 55.5% 2e-16 ***
+#sample year 52.5%  2e-16 *** 
+#sample year and sample month 66.57% *** 
+# sample year, month and day 70% *** 
+
+linear_model<- lm(cond~ sample_day+sample_month+sample_year , data = wes)
+summary(linear_model)
+
+#plot(linear_model)
+wes$p.cond<- predict.lm(linear_model, wes)
+plot(wes$p.cond)
+
+#remove ch4 outliers - did in matlab 
+
+
+```
+
+#gam for ch4 chamber fluxes Weston 
+ch4_flux
+co2_flux
+
+sample_year
+sample_month
+sample_day
+chamber_id
+
+conductivity
+biomass_above
+ppt..m.
+tmean..degrees.C.
+tmax..degrees.C.
+vpdmax..hPa.
+
+wes$ppt=wes$ppt..mm.
+wes$tmean=wes$tmean..degrees.C.
+wes$tmax=wes$tmax..degrees.C.
+wes$vpd=wes$vpdmax..hPa.
+
+```{r}
+wes$ppt=wes$ppt
+
+gam_ch4 <- gam(ch4_flux~s(tmean,k=5)+s(vpd,k=5)+s(sample_day,k=5)+s(cond,k=5)+s(biomass,k=5)+s(collar_aligned_co2_1,k=5),data = wes, method = "REML")
+
+
+plot(gam_ch4, residuals = TRUE, pch = 1,shade=TRUE, seWithMean = TRUE,page=1)
+
+gam.check(gam_ch4)
+summary(gam_ch4)
+logLik(gam_ch4)
+
+```
+## gam for co2 chamber fluxes (without light treatment)
+
+
+ch4_flux
+co2_flux
+
+sample_year
+sample_month
+sample_day
+chamber_id
+
+conductivity
+biomass_above
+ppt..m.
+tmean..degrees.C.
+tmax..degrees.C.
+vpdmax..hPa.
+
+wes$ppt=wes$ppt..mm.
+wes$tmean=wes$tmean..degrees.C.
+wes$tmax=wes$tmax..degrees.C.
+wes$vpd=wes$vpdmax..hPa.
+```{r}
+
+gam_co2_0 <- gam(collar_aligned_co2_0~s(ppt,k=5)+s(biomass,k=5)+s(sample_day,k=5)+s(vpd,k=5)+s(ch4_flux,k=5)+s(p.cond,k=3),data = wes, method = "REML") 
+
+gam.check(gam_co2_0)
+
+plot(gam_co2_0, residuals = TRUE, pch = 1,shade=TRUE, seWithMean = TRUE,page=1)
+
+summary(gam_co2_0)
+logLik(gam_co2_0)
+
+```
+#regression for co2 
+```{r}
+##predict biomass from TA
+linear_model<- lm(biomass~ tmean, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+wes$p.biomass<- predict.lm(linear_model, wes)
+```
+
+
+
+
+## gam for co2 chamber fluxes (with light treatment)
+
+
+ch4_flux
+co2_flux
+
+sample_year
+sample_month
+sample_day
+chamber_id
+
+conductivity
+biomass_above
+ppt..m.
+tmean..degrees.C.
+tmax..degrees.C.
+vpdmax..hPa.
+
+wes$ppt=wes$ppt..mm.
+wes$tmean=wes$tmean..degrees.C.
+wes$tmax=wes$tmax..degrees.C.
+wes$vpd=wes$vpdmax..hPa.
+
+```{r}
+#gam_co2_1<-gam(co2_flux_1~s(ppt,k=5)+s(biomass,k=5)+s(sample_day,k=5)+s(vpd,k=5)+s(tmean,k=5)+s(sample_year,k=3)+s(sample_month,k=5)+s(ch4_flux,k=5),data = wes, method = "REML") 
+
+gam_co2_1<-gam(collar_aligned_co2_1~s(ppt,k=5)+s(biomass,k=5)+s(sample_day,k=5)+s(vpd,k=5)+s(tmean,k=5)+s(sample_year,k=3)+s(sample_month,k=5)+s(ch4_flux,k=5),data = wes, method = "REML") 
+
+plot(gam_co2_1, residuals = TRUE, pch = 1,shade=TRUE, seWithMean = TRUE,page=1)
+gam.check(gam_co2_1)
+
+summary(gam_co2_1)
+logLik(gam_co2_1)
+```
+##load new data for predictions 
+
+```{r}
+
+root.path<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\new_data\\"
+
+cdata.file2<-paste0("wes_co2_1")
+
+
+wes_co2_1<-read.csv(paste(root.path,cdata.file2,".csv",sep=""),
+                header=F,
+                skip=1,
+                na.strings="NA",
+                stringsAsFactors=F)
+
+
+colnames(wes_co2_1)<-colnames(read.csv(paste(root.path,cdata.file2,".csv",sep=""),                                                                 na.strings="NaN"))
+
+
+```
+
+
+#making predictions for co2 with light 
+
+```{r}
+
+gam_co2_1 <- gam(co2_flux_1~s(ppt,k=5)+s(biomass,k=5)+s(sample_day,k=5)+s(vpd,k=5)+s(tmean,k=5)+s(sample_year,k=3)+s(sample_month,k=5),data = wes, method = "REML") 
+
+wes_co2_1$biomass=wes_co2_1$p.biomass
+
+
+#predict(the name of the gam, the new data frame name, ....all other options)
+pred<-predict(gam_co2_1,wes_co2_1,type="link",se.fit=TRUE,terms=NULL,
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL)
+
+
+plot(pred$fit)
+plot(pred$se.fit)
+
+#this puts the predicted data into a data frame. I change the directions of the columns once I open the excel file. The data is placed in rows instead of columns. it outputs the predicted data in on column and the associated standard error in the other column. 
+wes_co2_1_predictions <- data.frame(matrix(unlist(pred), nrow=length(pred), byrow=TRUE))
+
+#wes_co2_1_predictions <-t(wes_co2_1_predictions) 
+
+#plot(wes_co2_1_predictions$V1)
+```
+
+## making predictions for co2 without light 
+
+```{r}
+
+wes_co2_1$biomass=wes_co2_1$p.biomass
+
+pred<-predict(gam_co2_0,wes_co2_1,type="link",se.fit=TRUE,terms=NULL,
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL)
+
+
+plot(pred$fit)
+plot(pred$se.fit)
+
+
+wes_co2_0_predictions <- data.frame(matrix(unlist(pred), nrow=length(pred), byrow=TRUE))
+
+```
+
+#making predicitons for ch4 
+```{r}
+gam_ch4 <- gam(ch4_flux~s(tmean,k=5)+s(vpd,k=5)+s(sample_day,k=5)+s(cond,k=5)+s(biomass)+s(ppt,k=3),data = wes, method = "REML") 
+
+
+wes_co2_1$biomass=wes_co2_1$p.biomass
+wes_co2_1$cond=wes$p.cond
+
+pred<-predict(gam_ch4,wes_co2_1,type="link",se.fit=TRUE,terms=NULL,
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL)
+
+
+plot(pred$fit)
+plot(pred$se.fit)
+
+
+wes_ch4_predictions <- data.frame(matrix(unlist(pred), nrow=length(pred), byrow=TRUE))
+
+
+```
+
+#save Weston data 
+
+```{r}
+##updated original data with linear relationships
+
+out.dir<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\"
+
+write.csv(wes,
+          paste(out.dir,"Weston_et_al_2014_4_GAM_2.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+
+##newly predicted data, rename the output each time 
+
+out.dir<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\predicted\\"
+
+write.csv(wes_ch4_predictions,
+          paste(out.dir,"ch4_predicted_data_model_29.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+
+## ################################################################
+
+
+## load Lousiana Data 
+
+```{r}
+
+require(mgcv)
+library(lme4)
+library(ggplot2)
+library(cowplot)
+library(tidyverse)
+library(ggpubr)
+
+
+root.path<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\"
+
+cdata.file2<-paste0("davis_pond_data")
+
+
+LA<-read.csv(paste(root.path,cdata.file2,".csv",sep=""),
+                header=F,
+                skip=1,
+                na.strings="NaN,-9999",
+                stringsAsFactors=F)
+
+
+colnames(LA)<-colnames(read.csv(paste(root.path,cdata.file2,".csv",sep=""),                                                                 na.strings="NaN"))
+
+
+cdata.file3<-paste0("davis_pond_tower")
+
+
+LA2<-read.csv(paste(root.path,cdata.file3,".csv",sep=""),
+                header=F,
+                skip=1,
+                   na.strings="NaN,-9999",
+                stringsAsFactors=F)
+
+
+colnames(LA2)<-colnames(read.csv(paste(root.path,cdata.file3,".csv",sep=""),                                                                 na.strings="NaN"))
+```
+
+#align datasets
+
+
+
+#timestamp for LA Data file 
+```{r}
+LA$TIMESTAMP<-strptime(paste(LA$sample_year,LA$sample_month,LA$sample_day,LA$hour_aligned,LA$minute_aligned,sep=" "),
+                          format="%Y%m%d%H%M", 
+                          tz = "Etc/GMT-5")
+
+#cdata$TIMESTAMP=cdata$TIMESTAMP+1800 don't need to add 1800. already in endtime format
+#cdata$TIMESTAMP=cdata$TIMESTAMP #just rename it end. so that we know
+
+LA$time.id<-LA$TIMESTAMP$year+1900+
+  (LA$TIMESTAMP$yday)/366+
+  (LA$TIMESTAMP$hour)/366/24+ 
+  (LA$TIMESTAMP$min)/366/24/60
+
+LA$time.id[1:50]
+plot(LA$TIMESTAMP,LA$time.id)
+which(duplicated(LA$time.id))
+```
+
+
+
+
+# Parsing time stamp of cdata (Met file)
+**Taking the met_data and turning the time stamp into posixt format**
+**creating a time id for the MET Data so I I can join the MET and Eddy Pro Data**
+
+```{r}
+#2011 12 16 00 30
+#rename timestamp in LA2t file to Time 
+
+LA2$TIMESTAMP<-strptime(paste(LA2$year,LA2$month,LA2$day,LA2$hour,LA2$min,sep=" "),
+                                     format ="%Y%m%d%H%M",
+                                    tz = "Etc/GMT-5")
+
+LA2$time.id <-LA2$TIMESTAMP$year+1900+
+  (LA2$TIMESTAMP$yday)/366+
+  (LA2$TIMESTAMP$hour)/366/24+
+  (LA2$TIMESTAMP$min)/366/24/60 
+
+LA2$time.id[1:20]
+plot(LA2$TIMESTAMP,LA2$time.id)
+which(duplicated(LA2$time.id))
+
+head(LA2)
+LA2$TIMESTAMP[1:20]
+```
+
+
+
+```{r}
+full.time<-data.frame(TIMESTAMP= seq.POSIXt(min(min(LA$TIMESTAMP),min(LA2$TIMESTAMP)),max(max(LA$TIMESTAMP),max(LA2$TIMESTAMP)),units = "seconds", by = 1800), stringsAsFactors=F)
+
+
+full.time$TIMESTAMP<-strptime(full.time$TIMESTAMP,
+                              format ="%Y-%m-%d %H:%M:%OS",
+                              tz = "Etc/GMT-8")
+
+full.time$time.id <-full.time$TIMESTAMP$year+1900+
+  (full.time$TIMESTAMP$yday)/366+
+  (full.time$TIMESTAMP$hour)/366/24+
+  (full.time$TIMESTAMP$min)/366/24/60 
+
+print(paste("Starting timestamp:",full.time$TIMESTAMP[1]))
+print(paste("Ending timestamp:",full.time$TIMESTAMP[nrow(full.time)]))
+
+head(full.time)
+```
+
+#Joining the  Data Sets use this one  
+* using time stamp from the full.time dataframe
+* Also create a doy.id, unique for each date, later used in aggregating daily values
+
+```{r}
+#make sure all time stamps are on the 00:00 or the 00:30 (or the 00:00, 00:15, 00:30, 00:45) from all three files (met, eddypro, ysi, LA2) or they will not line up correctly. 
+ 
+LA<- merge.data.frame(full.time,
+                         LA[,-which(colnames(LA)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+#all=true what ever appears in each file is show in the file data file. sort tries to sort each data frame by merging. in this case probably does not matter. timestamp
+
+joined<- merge.data.frame(LA,
+                         LA2[,-which(colnames(LA2)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE) 
+
+
+head(joined)
+
+colnames(joined)
+
+
+
+```
+
+
+## Plots and linear regression for co2 chamber fluxes
+
+```{r}
+
+##for co2 chamber fluxes 
+ggplot(data = wes, aes(x = sample_year, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_month, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_day, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = cond, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x =biomass, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = ppt, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = tmean, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = tmax, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = vpd, y = co2_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+### for CO2, ppt and biomass had the strongest relationships 
+linear_model<- lm(co2_flux~ sample_month, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ sample_year, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ sample_day, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ cond, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ biomass, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ ppt, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ tmean, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ tmax, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(co2_flux~ vpd, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+
+```
+
+
+##plots and linear regressions for ch4 fluxes Lousiana 
+
+
+```{r}
+
+ggplot(data = wes, aes(x = sample_year, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_month, y = ch4_flux )) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = sample_day, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = conductivity, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x =biomass_above, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = ppt, y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+ggplot(data = wes, aes(x = tmean..degrees.C., y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = tmax..degrees.C., y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+
+ggplot(data = wes, aes(x = vpdmax..hPa., y = ch4_flux)) +
+  geom_point(color = "black") +
+  theme_bw()
+
+### for ch4 tmean, tmax, and vpd had strongest relationships 
+linear_model<- lm(FCH4_F~ FCH4_F_ANN, data = joined)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ sample_year, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ sample_day, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ conductivity, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ biomass_above, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ ppt, data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ tmean..degrees.C., data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ tmax..degrees.C., data = wes)
+summary(linear_model)
+plot(linear_model)
+
+linear_model<- lm(ch4_flux~ vpdmax..hPa., data = wes)
+summary(linear_model)
+plot(linear_model)
+
+
+
+plot(wes$p.biomass)
+
+
+
+```
+
+# fill variables with gaps from linear relationships 
+
+
+```{r}
+#porewater_temperature
+linear_model<- lm(porewater_temperature~ sample_month+soil_temperature+sample_start_time_hour, data = LA)
+summary(linear_model)
+
+
+LA$p.porewater_temperature<- predict.lm(linear_model, LA)
+
+#plot(LA$p.porewater_temperature)
+
+
+x <- seq(1, 60)
+y1 <- LA$p.porewater_temperature
+y2 <- LA$porewater_temperature
+plot(x, y1, col = "blue", pch = 20)
+points(x, y2, col = "red", pch = 20)
+legend(0, 29, legend=c("p temp", "m temp"),
+       col=c("blue", "red"), lty=1:2, cex=0.8)
+
+
+#soil temperature from air temperature
+linear_model<- lm(soil_temperature~ air_temperature_outside_chamber, data = LA)
+summary(linear_model)
+
+LA$p.porewater_temperature<- predict.lm(linear_model, LA)
+
+
+#air_temperature_outside_chamber with PRISM air temperatures 
+linear_model<- lm(air_temperature_outside_chamber~ tmean_C, data = LA)
+summary(linear_model)
+
+
+#tide bin 
+LA$tide_bin_0<- factor(ifelse(LA$water_table_depth > 0, "1", "0"))  #1 = high #0 = low
+
+
+```
+
+
+#gam for ch4 chamber fluxes Lousiana 
+
+```{r}
+
+ # joined[!is.na(joined$ch4_flux)&
+  #          abs(joined$ch4_flux)>800,c("ch4_flux")]<-NA
+
+#plot(joined$ch4_flux)
+# joined$FCH4_F_orig=joined$FCH4_F
+# joined$FCH4_F=joined$FCH4_FF
+
+gam_ch4 <- gam(ch4_flux~s(NEE_F)+s(VPD_F)+s(FCH4_F_ANN),data=joined,method="REML")
+
+#plot(gam_ch4, residuals = TRUE, pch = 1,shade=TRUE, seWithMean = TRUE,page=1)
+
+gam.check(gam_ch4)
+summary(gam_ch4)
+logLik(gam_ch4)
+
+
+# tidal_diff <- data.frame(diff(joined$WTD))
+# tidal_diff <- rbind(tidal_diff, c(NaN))
+# joined$tidal_diff=tidal_diff$diff.joined.WTD.
+
+
+# joined$tide_bin_40cm <- factor(ifelse(joined$WTD > 40, "1", "0"))  #1 = high #0 = low
+# joined$tide_bin_20cm <- factor(ifelse(joined$WTD > 20, "1", "0"))  #1 = high #0 = low
+# joined$tide_bin_10cm <- factor(ifelse(joined$WTD > 10, "1", "0"))  #1 = high #0 = low
+# joined$tide_bin_0cm <- factor(ifelse(joined$WTD > 0, "1", "0"))  #1 = high #0 = low
+# joined$tide_bin_neg_10cm <- factor(ifelse(joined$WTD < -10, "1", "0"))  #1 = high #0 = low
+# joined$tide_bin_neg_20cm <- factor(ifelse(joined$WTD < -20, "1", "0"))  #1 = high #0 = low
+# joined$tide_bin_5cm <- factor(ifelse(joined$WTD > 5, "1", "0"))  #1 = high #0 = low
+# 
+
+
+
+#joined$FCH4_F_orig=FCH4_FF
+
+
+
+```
+
+##load new data for predictions 
+
+```{r}
+
+# not needed for this cite because I'm making predictions with the same data frame 
+
+root.path<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\new_data\\"
+
+cdata.file2<-paste0("wes_co2_1")
+
+
+wes_co2_1<-read.csv(paste(root.path,cdata.file2,".csv",sep=""),
+                header=F,
+                skip=1,
+                na.strings="NA",
+                stringsAsFactors=F)
+
+
+colnames(wes_co2_1)<-colnames(read.csv(paste(root.path,cdata.file2,".csv",sep=""),                                                                 na.strings="NaN"))
+
+
+```
+
+
+
+#making predicitons for ch4 Lousiana 
+```{r}
+# gam_ch4 <- gam(ch4_flux~s(tmean,k=5)+s(vpd,k=5)+s(sample_day,k=5)+s(cond,k=5)+s(biomass)+s(ppt,k=3),data = wes, method = "REML") 
+
+# 
+# wes_co2_1$biomass=wes_co2_1$p.biomass
+# wes_co2_1$cond=wes$p.cond
+
+pred<-predict(gam_ch4,joined,type="link",se.fit=TRUE,terms=NULL,
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL)
+
+#V1 in output is the predicted value of your gam
+#V2 is the associated standard error
+
+plot(pred$fit)
+plot(pred$se.fit)
+
+#put list into a dataframe
+LA2_ch4_predictions <- data.frame(matrix(unlist(pred), nrow=length(pred), byrow=TRUE))
+
+#transpose so that the data is in columns not rows 
+LA2_ch4_predictions<- as.data.frame(t(LA2_ch4_predictions))
+
+#rename variables to something meaningful in the new data frame
+LA2_ch4_predictions$pred_FCH4=LA2_ch4_predictions$V1
+LA2_ch4_predictions$pred_SE=LA2_ch4_predictions$V2
+
+# or add to original data frame
+joined$pred_FCH4=LA2_ch4_predictions$V1
+joined$pred_SE=LA2_ch4_predictions$V2
+
+```
+#PLOTs
+```{r}
+
+plot(joined$TIMESTAMP,joined$ch4_flux)
+plot(joined$TIMESTAMP,joined$FCH4_F_orig)
+plot(joined$TIMESTAMP,joined$FCH4_F_ANN)
+
+
+#comparison of tower ch4 and chamber ch4 
+plot(joined$TIMESTAMP,
+     joined$FCH4_F_ANN,
+      type = "p",
+       pch = 16,
+       col = "blue",
+       #xlim = c(0, 360),
+      # ylim = c(0, 1),
+       xlab = "Date",
+       ylab = "CH4 Flux (nmol m-2 s-1)")
+  points(joined$TIMESTAMP,joined$ch4_flux,
+         pch = 16,
+         col = "red")
+  legend("top",
+         legend = c("Tower","Chamber"),
+         pch = 16,
+         col = c("blue","red"),
+         bty = "n",
+         cex = 0.8)
+  
+ #comparison of chamber measured and GAM modeled ch4 
+ plot(joined$TIMESTAMP,
+     LA2_ch4_predictions$pred_FCH4,
+      type = "p",
+       pch = 16,
+       col = "green",
+       #xlim = c(0, 360),
+      # ylim = c(0, 1),
+       xlab = "Date",
+       ylab = "CH4 Flux (nmol m-2 s-1)")
+  points(joined$TIMESTAMP,joined$ch4_flux,
+         pch = 16,
+         col = "red")
+  legend("top",
+         legend = c("GAM","Chamber"),
+         pch = 16,
+         col = c("green","red"),
+         bty = "n",
+         cex = 0.8)
+  
+ 
+
+```
+
+
+#save data 
+
+```{r}
+##updated original data with linear relationships
+
+out.dir<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\"
+
+write.csv(joined,
+          paste(out.dir,"LA2_joined.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+
+##newly predicted data
+
+out.dir<-"D:\\SanDiskSecureAccess\\EdenLanding\\EL_chamber_data\\GAM\\other_sites\\predicted\\"
+
+write.csv(LA2_ch4_predictions,
+          paste(out.dir,"LA2_ch4_predictions.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,928 @@
+---
+title: "Bootstrap treatment side GAM Concord"
+output: html_document
+---
+```{r}
+require(dplyr)
+require(mgcv)
+library(mgcv)
+library(ggplot2)
+library(ISLR)
+library(mgcv)
+library(boot)
+require(matrixStats)
+library(REddyProc)
+
+library(bigleaf)
+```
+
+#load tower and eosense data
+
+#Defining the data I/O directory
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+GAM.path<-paste0(root.path,"14_GAM_ready_Data\\") # this is tower data for the GAM model lives
+
+
+
+ 
+
+
+out.path<-paste0(root.path, "15_GAM_predict_data\\")
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.GAM_treat_post_compost<-paste0("2021-09-14_post_compost_treat_GAM.csv")
+
+
+
+
+
+ 
+```
+
+
+#Tower data for the GAM model
+
+```{r}
+## read in full output file of gap filled data
+GAM_treat_post_compost <-
+  read.csv(
+    paste0(GAM.path, cdata.GAM_treat_post_compost, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+colnames(GAM_treat_post_compost) <-
+  colnames(read.csv(
+    paste(GAM.path, cdata.GAM_treat_post_compost, sep = ""),
+    header = T,
+    na.strings = "NA"
+  ))
+
+head(GAM_treat_post_compost)
+
+tail(GAM_treat_post_compost)
+
+```
+
+
+
+
+#adding POSIXT format back to GAM_treat_post_compost_data
+```{r}
+
+
+GAM_treat_post_compost$TIMESTAMP <- strptime(paste(GAM_treat_post_compost$TIMESTAMP),
+                                 format = "%m/%d/%Y %H:%M",
+                                 tz = "Etc/GMT-8")
+
+
+GAM_treat_post_compost$TIMESTAMP[500:560]
+
+head(GAM_treat_post_compost)
+
+plot( GAM_treat_post_compost$TIMESTAMP, GAM_treat_post_compost$NEE)
+```
+
+```{r}
+GAM_treat_post_compost$time.id <- GAM_treat_post_compost$TIMESTAMP$year + 1900 +
+  (GAM_treat_post_compost$TIMESTAMP$yday) / 366 +
+  (GAM_treat_post_compost$TIMESTAMP$hour) / 366 / 24 +
+  (GAM_treat_post_compost$TIMESTAMP$min) / 366 / 24 / 60
+
+GAM_treat_post_compost$time.id[1:50]
+plot(GAM_treat_post_compost$TIMESTAMP, GAM_treat_post_compost$time.id)
+
+```
+
+
+
+
+
+
+
+
+
+#plotting in blue NEE from Tower 
+```{r}
+
+
+plot(GAM_treat_post_compost$TIMESTAMP, GAM_treat_post_compost$NEE, 
+     ylim = c(-20,20),
+     col= "blue")
+
+
+
+```
+
+
+#subsetting data set to be night time data for GAM model
+
+```{r}
+
+Night_GAM_treat_post_compost<- GAM_treat_post_compost[!is.na(GAM_treat_post_compost$Rg) & GAM_treat_post_compost$Rg<=10, ]
+
+Night_GAM_treat_post_compost
+
+GAM_treat_post_compost
+
+tail(Night_GAM_treat_post_compost$TIMESTAMP)
+
+```
+#outliers overall data
+```{r}
+boxplot(GAM_treat_post_compost$NEE,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_treat <-boxplot.stats(GAM_treat_post_compost$NEE)$out
+
+
+
+sort.int(box_stats_treat)
+```
+
+#outliers Just night time data
+```{r}
+boxplot(Night_GAM_treat_post_compost$NEE,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_treat <-boxplot.stats(Night_GAM_treat_post_compost$NEE)$out
+
+
+
+sort.int(box_stats_treat)
+```
+
+
+```{r}
+#from night time data remove outliers
+Night_GAM_treat_post_compost$NEE[ Night_GAM_treat_post_compost$NEE > 4.828] <-NA
+
+Night_GAM_treat_post_compost$NEE[ Night_GAM_treat_post_compost$NEE < -1.922 ] <-NA
+
+summary(Night_GAM_treat_post_compost$NEE)
+
+plot(Night_GAM_treat_post_compost$NEE)
+```
+#night treatment side data##############################
+
+
+
+
+
+## night treatment side CO2 bootstrapping GAM model
+  you choose number of times to be run (line 49)
+  choose sample size (line 55)
+  creates n number of gams (line 56)
+  makes the predictions on each gam (ine 58)
+  unlists and transposes the predictions (lines 61 and 62)
+  puts all in one df (lines 65 and 70)
+  find the mean and the 95% CI for each point  (lines 73 to 87)
+  puts the mean, upper, and lower CI into one dataframe called mean_df (lines 90-92)
+
+```{r}
+#if an error says vector length not the same you may have a column with too many NaN's
+
+n <- 1:30 ##enter number of times to be run here 
+
+## use data.frame since you only have 1 fixed-length vector each time
+master_treatment_pred = data.frame(NULL)
+
+# create progress bar
+pb <- txtProgressBar(min = 0, max = max(n), style = 3)
+for (x in n)
+{
+  ## use this to track time for each major steps (could be comment out)
+  time.ini <- Sys.time()
+  
+  #### the following part deal with re-sampling (bootstrapping)
+  ## use the original data
+  if(x == 1){
+  treatment_co2_sample <- Night_GAM_treat_post_compost
+    
+  }else{
+  ## re-sample data for n-1 times, with the same sample size, but with repeats 
+  treatment_co2_sample <-
+    sample_n(Night_GAM_treat_post_compost, size = nrow(Night_GAM_treat_post_compost), replace = T)    
+    
+  }
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  ## avoid using names that is designated in R, e.g., gam     
+  nee.gam <-
+    gam(
+      NEE ~ s(VWC, k = 30) + s(Tair, VPD, k = 30) ,
+      data = treatment_co2_sample,
+      method = "REML"
+    )
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  #this is if we want to see each gam and its info separately in the environment on the right
+  pred_treatment_co2 <-
+    predict(
+      nee.gam,
+      Night_GAM_treat_post_compost,
+      type = "link",
+      se.fit = FALSE,
+      terms = NULL,
+      exclude = NULL,
+      block.size = NULL,
+      newdata.guaranteed = FALSE,
+      na.action = na.pass,
+      unconditional = FALSE,
+      iterms.type = NULL
+    )
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  treat_co2_pred <-
+    data.frame(matrix(
+      unlist(pred_treatment_co2),
+      nrow = length(pred_treatment_co2),
+      byrow = TRUE
+    ))
+  #treat_co2_pred <- as.data.frame(t(treat_co2_pred))
+  #treat_co2_pred = subset(treat_co2_pred, select = -c(V2))
+  # treat_co2_pred$x <- x  use this if we want to know which run is which.
+  if(x == 1){
+    master_treatment_pred <- treat_co2_pred
+  }else{
+    master_treatment_pred <- cbind.data.frame(master_treatment_pred,
+                                            treat_co2_pred)   
+  }
+  
+  #assign(paste("treat_co2_pred",x,sep="_"),treat_co2_pred)  ##this is if we want to see each prediction separately (has standard error)
+  
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  # update progress bar
+  Sys.sleep(0.1)
+  setTxtProgressBar(pb, x)
+}
+
+#put all the predicted data together 
+#master_control_co2 = do.call(cbind, master_treatment_pred)
+
+#find the mean 
+Night_GAM_treat_post_compost$pred_GAM_NEE <- rowMeans(master_treatment_pred, na.rm = TRUE)
+#mean<-rowMeans(master_control_co2, na.rm=TRUE)
+#mean_df<- as.data.frame(mean)  #make it a data frame to plot
+
+#find the standard deviation 
+#master_control_co2_matrix<-data.matrix(master_control_co2, rownames.force = NA)  #to be able to find row stdev, have to convert to numerix matrix
+Night_GAM_treat_post_compost$NEE_pred_stdev <- apply(master_treatment_pred, 1, sd, na.rm = TRUE)
+#stdev<-rowSds(master_control_co2_matrix, na.rm=TRUE)
+#stdev_df<- as.data.frame(stdev) #make it a data frame to plot
+
+#find upper lim of CI
+#upperlim=mean_df$mean+1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#upperlim_df<- as.data.frame(upperlim)
+Night_GAM_treat_post_compost$upperCI <- apply(master_treatment_pred, 1, quantile, probs = 0.975, na.rm = TRUE)
+
+#find lower lim of CI
+#lowerlim=mean_df$mean-1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#lowerlim_df<- as.data.frame(lowerlim)
+Night_GAM_treat_post_compost$lowerCI <- apply(master_treatment_pred, 1, quantile, probs = 0.025, na.rm = TRUE)
+
+#put needed values in a dataframe 
+#mean_df$lowerCI=lowerlim_df$lowerlim
+#mean_df$upperCI=upperlim_df$upperlim
+#mean_df$TIMESTAMP=Night_GAM_treat_post_compost$TIMESTAMP
+  
+  
+```
+
+#plots 
+Two plots, but they are the same. Just different colors
+
+```{r}
+#plots
+plot(Night_GAM_treat_post_compost$TIMESTAMP,
+      Night_GAM_treat_post_compost$upperCI, lty = 'dashed', col = 'red'
+     # ,  ylim = c(-60,20)
+     )
+lines(Night_GAM_treat_post_compost$TIMESTAMP,
+      Night_GAM_treat_post_compost$lowerCI, lty = 'dashed', col = 'red'
+      # ,   ylim = c(-60,20)
+      )
+lines(Night_GAM_treat_post_compost$TIMESTAMP,
+     Night_GAM_treat_post_compost$pred_GAM_NEE,
+     col="black",   ylim = c(-60,20))
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+
+
+# 
+# plot(Night_GAM_treat_post_compost$TIMESTAMP,
+#        upperlim_df$upperlim,
+#        col="green",
+#      ylim = c(-60,20))
+#      # pch = 16,)
+# lines(Night_GAM_treat_post_compost$TIMESTAMP,
+#       upperlim_df$upperlim,
+#        col="green",
+#       ylim = c(-60,20))
+# 
+# points(Night_GAM_treat_post_compost$TIMESTAMP,
+#        lowerlim_df$lowerlim,
+#        col="blue",)
+#      # pch = 16,
+# ylim = c(-60,20)
+# lines(Night_GAM_treat_post_compost$TIMESTAMP,
+#       lowerlim_df$lowerlim,
+#       col="blue",
+#       ylim = c(-60,20))
+# points(Night_GAM_treat_post_compost$TIMESTAMP,
+#      mean_df$mean,
+#      col="red",
+#       #pch = 16,)
+# ylim = c(-60,20))
+# lines(Night_GAM_treat_post_compost$TIMESTAMP
+#       ,mean_df$mean,
+#      col="red",
+#      ylim = c(-60,20))
+#   legend(
+#          legend = c("upper 95% CI","lower 95% CI","mean"),
+#            pch = 16,
+#          col = c( "green", "blue","red"),
+#          bty = "n")
+  
+```
+
+```{r}
+  #creating a new NEE column with the modeled treatment side data
+Night_GAM_treat_post_compost $GAM_treat_GF_GAM <- (Night_GAM_treat_post_compost$NEE * 1)
+
+
+summary(Night_GAM_treat_post_compost $GAM_treat_GF_GAM)
+
+
+
+#making any NA values measured by the tower the treatment gapfilled values.
+Night_GAM_treat_post_compost$GAM_treat_GF_GAM[is.na(Night_GAM_treat_post_compost$GAM_treat_GF_GAM)] <-
+  Night_GAM_treat_post_compost$pred_GAM_NEE[is.na(Night_GAM_treat_post_compost$GAM_treat_GF_GAM)]
+
+
+summary(Night_GAM_treat_post_compost $GAM_treat_GF_GAM)
+
+plot(Night_GAM_treat_post_compost$GAM_treat_GF_GAM)
+
+```
+
+```{r}
+boxplot(Night_GAM_treat_post_compost$GAM_treat_GF_GAM,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_GF_treat <-boxplot.stats(Night_GAM_treat_post_compost$GAM_treat_GF_GAM)$out
+
+min(box_stats_GF_treat)
+
+sort.int(box_stats_GF_treat)
+
+summary(Night_GAM_treat_post_compost$GAM_treat_GF_GAM)
+```
+
+
+#No longer cleaning up outliers post model
+
+```{r}
+
+
+# Night_GAM_treat_post_compost$GAM_treat_GF_GAM[ Night_GAM_treat_post_compost$GAM_treat_GF_GAM < -0.483 ] <-NA
+# 
+# Night_GAM_treat_post_compost$GAM_treat_GF_GAM[ Night_GAM_treat_post_compost$GAM_treat_GF_GAM > 3.375 ] <-NA
+#  
+#  summary(Night_GAM_treat_post_compost$GAM_treat_GF_GAM)
+```
+
+
+```{r}
+#plotting
+plot(Night_GAM_treat_post_compost$TIMESTAMP,Night_GAM_treat_post_compost$GAM_treat_GF_GAM,
+     ylim = c(-6,6),
+     col= 'red')
+
+par(new=TRUE)
+plot(Night_GAM_treat_post_compost$TIMESTAMP, Night_GAM_treat_post_compost$NEE
+     ,ylim = c(-6,6)
+     )
+
+plot(Night_GAM_treat_post_compost$TIMESTAMP, Night_GAM_treat_post_compost$pred_GAM_NEE)
+
+plot(Night_GAM_treat_post_compost$TIMESTAMP, Night_GAM_treat_post_compost$GAM_treat_GF_GAM)
+
+with(Night_GAM_treat_post_compost, boxplot(Night_GAM_treat_post_compost$GAM_treat_GF_GAM~treatment
+                          ))
+#comparing NEE data to gap filled data
+summary(Night_GAM_treat_post_compost$NEE)
+summary(Night_GAM_treat_post_compost $GAM_treat_GF_GAM)
+
+
+
+
+```
+
+```{r}
+
+
+
+#comparing orginal NEE data to GF with GAM again
+summary(Night_GAM_treat_post_compost $GAM_treat_GF_GAM)
+summary(Night_GAM_treat_post_compost$NEE)
+
+#comparing post compost application
+summary(Night_GAM_treat_post_compost $GAM_treat_GF_GAM)
+summary(Night_GAM_treat_post_compost$NEE)
+
+
+#plotting overall data
+plot(Night_GAM_treat_post_compost$GAM_treat_GF_GAM ,
+     # ylim=c (-60,20),
+     col ="red")
+par(new= TRUE)
+plot(Night_GAM_treat_post_compost$NEE,
+     # ylim=c (-60,20),
+     col ="blue")
+
+#plotting data post compost application
+plot(Night_GAM_treat_post_compost$TIMESTAMP[Night_GAM_treat_post_compost $ TIMESTAMP > as.POSIXct("2020-12-12")& Night_GAM_treat_post_compost $ TIMESTAMP <as.POSIXct("2021-04-12")],Night_GAM_treat_post_compost$GAM_treat_GF_GAM [Night_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-12-12")& Night_GAM_treat_post_compost$TIMESTAMP <as.POSIXct("2021-04-12")],
+     ylim=c (0,3.5),
+     ylab = "NEE",
+     xlab ="2020-2021",
+     main = "Treatment Side tower data (blue) and GF GAM Data (red)",
+     col ="red")
+par(new= TRUE)
+plot(Night_GAM_treat_post_compost$TIMESTAMP[Night_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-12-12")& Night_GAM_treat_post_compost $ TIMESTAMP <as.POSIXct("2021-04-12")],Night_GAM_treat_post_compost$NEE[Night_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-12-12")& Night_GAM_treat_post_compost $ TIMESTAMP <as.POSIXct("2021-04-12")],
+     ylim=c (0, 3.5),
+     ylab = "",
+     xlab = "",
+     col ="blue")
+```
+
+
+```{r}
+#plots
+plot(Night_GAM_treat_post_compost$TIMESTAMP,
+      Night_GAM_treat_post_compost$upperCI, lty = 'dashed', col = 'red',  ylim = c(-2,5))
+lines(Night_GAM_treat_post_compost$TIMESTAMP,
+      Night_GAM_treat_post_compost$lowerCI, lty = 'dashed', col = 'red',   ylim = c(-2,5))
+lines(Night_GAM_treat_post_compost$TIMESTAMP,
+     Night_GAM_treat_post_compost$GAM_treat_GF_GAM,
+     col="black",   ylim = c(-60,20))
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+```
+
+```{r}
+#seeing which rows are duplicated
+which(duplicated(Night_GAM_treat_post_compost$TIMESTAMP))
+
+# #removing duplicated rows
+# Night_GAM_treat_post_compost<-Night_GAM_treat_post_compost[!duplicated(Night_GAM_treat_post_compost$TIMESTAMP), ]
+# 
+# #checking that this worked
+# 
+#  which(duplicated(Night_GAM_treat_post_compost$TIMESTAMP))
+#  
+#  #removing any rows with NA in time.id column
+#  Night_GAM_treat_post_compost <- Night_GAM_treat_post_compost[ !(Night_GAM_treat_post_compost$time.id %in% c(NA)), ]
+#  
+# #removing any rows with NA in TIMESTAMP column 
+#   Night_GAM_treat_post_compost <- Night_GAM_treat_post_compost[ !(Night_GAM_treat_post_compost$TIMESTAMP %in% c(NA)), ]
+#   
+#  which(duplicated(Night_GAM_treat_post_compost$TIMESTAMP))
+#  
+#  summary(Night_GAM_treat_post_compost $GAM_treat_GF_GAM[Night_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-10-16")])
+#  
+#  Night_GAM_treat_post_compost
+ 
+
+
+
+
+
+```
+##########################################################################
+#Daytime Treatment side data
+
+#subsetting data set to be night time data for GAM model
+
+```{r}
+
+Day_GAM_treat_post_compost<- GAM_treat_post_compost[!is.na(GAM_treat_post_compost$Rg) & GAM_treat_post_compost$Rg>10, ]
+
+Day_GAM_treat_post_compost
+
+GAM_treat_post_compost
+
+tail(Day_GAM_treat_post_compost$TIMESTAMP)
+
+```
+
+```{r}
+boxplot(Day_GAM_treat_post_compost$NEE,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_treat_day <-boxplot.stats(Day_GAM_treat_post_compost$NEE)$out
+
+
+
+sort.int(box_stats_treat_day)
+```
+
+
+```{r}
+#from day time data remove outliers
+Day_GAM_treat_post_compost$NEE[ Day_GAM_treat_post_compost$NEE > 4.159] <-NA
+
+Day_GAM_treat_post_compost$NEE[ Day_GAM_treat_post_compost$NEE < -8.3101 ] <-NA
+
+summary(Day_GAM_treat_post_compost$NEE)
+
+plot(Day_GAM_treat_post_compost$NEE)
+```
+#day time treatment side CO2 bootstrapping GAM model
+  you choose number of times to be run (line 49)
+  choose sample size (line 55)
+  creates n number of gams (line 56)
+  makes the predictions on each gam (ine 58)
+  unlists and transposes the predictions (lines 61 and 62)
+  puts all in one df (lines 65 and 70)
+  find the mean and the 95% CI for each point  (lines 73 to 87)
+  puts the mean, upper, and lower CI into one dataframe called mean_df (lines 90-92)
+
+```{r}
+#if an error says vector length not the same you may have a column with too many NaN's
+
+n <- 1:30 ##enter number of times to be run here 
+
+## use data.frame since you only have 1 fixed-length vector each time
+master_treatment_day_pred = data.frame(NULL)
+
+# create progress bar
+pb <- txtProgressBar(min = 0, max = max(n), style = 3)
+for (x in n)
+{
+  ## use this to track time for each major steps (could be comment out)
+  time.ini <- Sys.time()
+  
+  #### the following part deal with re-sampling (bootstrapping)
+  ## use the original data
+  if(x == 1){
+  treatment_day_co2_sample <- Day_GAM_treat_post_compost
+    
+  }else{
+  ## re-sample data for n-1 times, with the same sample size, but with repeats 
+  treatment_day_co2_sample <-
+    sample_n(Day_GAM_treat_post_compost, size = nrow(Day_GAM_treat_post_compost), replace = T)    
+    
+  }
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  ## avoid using names that is designated in R, e.g., gam     
+  nee_day.gam <-
+    gam(
+      NEE ~ s(VWC, k = 30) + s(Rg, Tair, VPD, k = 30) ,
+      data = treatment_day_co2_sample,
+      method = "REML"
+    )
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  #this is if we want to see each gam and its info separately in the environment on the right
+  pred_treatment_day_co2 <-
+    predict(
+      nee_day.gam,
+      Day_GAM_treat_post_compost,
+      type = "link",
+      se.fit = FALSE,
+      terms = NULL,
+      exclude = NULL,
+      block.size = NULL,
+      newdata.guaranteed = FALSE,
+      na.action = na.pass,
+      unconditional = FALSE,
+      iterms.type = NULL
+    )
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  treat_co2_pred <-
+    data.frame(matrix(
+      unlist(pred_treatment_day_co2),
+      nrow = length(pred_treatment_day_co2),
+      byrow = TRUE
+    ))
+  #treat_co2_pred <- as.data.frame(t(treat_co2_pred))
+  #treat_co2_pred = subset(treat_co2_pred, select = -c(V2))
+  # treat_co2_pred$x <- x  use this if we want to know which run is which.
+  if(x == 1){
+    master_treatment_day_pred <- treat_co2_pred
+  }else{
+    master_treatment_day_pred <- cbind.data.frame(master_treatment_day_pred,
+                                            treat_co2_pred)   
+  }
+  
+  #assign(paste("treat_co2_pred",x,sep="_"),treat_co2_pred)  ##this is if we want to see each prediction separately (has standard error)
+  
+  # return time (could comment out)
+  print(Sys.time() - time.ini)
+  
+  # update progress bar
+  Sys.sleep(0.1)
+  setTxtProgressBar(pb, x)
+}
+
+#put all the predicted data together 
+#master_control_co2 = do.call(cbind, master_treatment_day_pred)
+
+#find the mean 
+Day_GAM_treat_post_compost$pred_GAM_NEE <- rowMeans(master_treatment_day_pred, na.rm = TRUE)
+#mean<-rowMeans(master_control_co2, na.rm=TRUE)
+#mean_df<- as.data.frame(mean)  #make it a data frame to plot
+
+#find the standard deviation 
+#master_control_co2_matrix<-data.matrix(master_control_co2, rownames.force = NA)  #to be able to find row stdev, have to convert to numerix matrix
+Day_GAM_treat_post_compost$NEE_pred_stdev <- apply(master_treatment_day_pred, 1, sd, na.rm = TRUE)
+#stdev<-rowSds(master_control_co2_matrix, na.rm=TRUE)
+#stdev_df<- as.data.frame(stdev) #make it a data frame to plot
+
+#find upper lim of CI
+#upperlim=mean_df$mean+1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#upperlim_df<- as.data.frame(upperlim)
+Day_GAM_treat_post_compost$upperCI <- apply(master_treatment_day_pred, 1, quantile, probs = 0.975, na.rm = TRUE)
+
+#find lower lim of CI
+#lowerlim=mean_df$mean-1.960*stdev_df$stdev/sqrt(length(n)) #zvalue for 95% CI= 1.960
+#lowerlim_df<- as.data.frame(lowerlim)
+Day_GAM_treat_post_compost$lowerCI <- apply(master_treatment_day_pred, 1, quantile, probs = 0.025, na.rm = TRUE)
+
+#put needed values in a dataframe 
+#mean_df$lowerCI=lowerlim_df$lowerlim
+#mean_df$upperCI=upperlim_df$upperlim
+#mean_df$TIMESTAMP=Day_GAM_treat_post_compost$TIMESTAMP
+  
+  
+```
+
+#plots 
+Two plots, but they are the same. Just different colors
+
+```{r}
+#plots
+plot(Day_GAM_treat_post_compost$TIMESTAMP,
+      Day_GAM_treat_post_compost$upperCI, lty = 'dashed', col = 'red'
+     # ,  ylim = c(-60,20)
+     )
+lines(Day_GAM_treat_post_compost$TIMESTAMP,
+      Day_GAM_treat_post_compost$lowerCI, lty = 'dashed', col = 'red'
+      # ,   ylim = c(-60,20)
+      )
+lines(Day_GAM_treat_post_compost$TIMESTAMP,
+     Day_GAM_treat_post_compost$pred_GAM_NEE,
+     col="black",   ylim = c(-60,20))
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+
+
+# 
+# plot(Day_GAM_treat_post_compost$TIMESTAMP,
+#        upperlim_df$upperlim,
+#        col="green",
+#      ylim = c(-60,20))
+#      # pch = 16,)
+# lines(Day_GAM_treat_post_compost$TIMESTAMP,
+#       upperlim_df$upperlim,
+#        col="green",
+#       ylim = c(-60,20))
+# 
+# points(Day_GAM_treat_post_compost$TIMESTAMP,
+#        lowerlim_df$lowerlim,
+#        col="blue",)
+#      # pch = 16,
+# ylim = c(-60,20)
+# lines(Day_GAM_treat_post_compost$TIMESTAMP,
+#       lowerlim_df$lowerlim,
+#       col="blue",
+#       ylim = c(-60,20))
+# points(Day_GAM_treat_post_compost$TIMESTAMP,
+#      mean_df$mean,
+#      col="red",
+#       #pch = 16,)
+# ylim = c(-60,20))
+# lines(Day_GAM_treat_post_compost$TIMESTAMP
+#       ,mean_df$mean,
+#      col="red",
+#      ylim = c(-60,20))
+#   legend(
+#          legend = c("upper 95% CI","lower 95% CI","mean"),
+#            pch = 16,
+#          col = c( "green", "blue","red"),
+#          bty = "n")
+  
+```
+
+```{r}
+  #creating a new NEE column with the modeled treatment side data
+Day_GAM_treat_post_compost $GAM_treat_GF_GAM <- (Day_GAM_treat_post_compost$NEE * 1)
+
+
+summary(Day_GAM_treat_post_compost $GAM_treat_GF_GAM)
+
+
+
+#making any NA values measured by the tower the treatment gapfilled values.
+Day_GAM_treat_post_compost$GAM_treat_GF_GAM[is.na(Day_GAM_treat_post_compost$GAM_treat_GF_GAM)] <-
+  Day_GAM_treat_post_compost$pred_GAM_NEE[is.na(Day_GAM_treat_post_compost$GAM_treat_GF_GAM)]
+
+
+summary(Day_GAM_treat_post_compost $GAM_treat_GF_GAM)
+
+plot(Day_GAM_treat_post_compost$GAM_treat_GF_GAM)
+
+```
+
+```{r}
+boxplot(Day_GAM_treat_post_compost$GAM_treat_GF_GAM,
+  ylab = "NEE",
+  main = "Boxplot of tower NEE"
+)   
+
+
+box_stats_GF_treat <-boxplot.stats(Day_GAM_treat_post_compost$GAM_treat_GF_GAM)$out
+
+min(box_stats_GF_treat)
+
+sort.int(box_stats_GF_treat)
+
+summary(Day_GAM_treat_post_compost$GAM_treat_GF_GAM)
+```
+
+
+#Not removing outliers after model anymore
+
+```{r}
+
+
+# Day_GAM_treat_post_compost$GAM_treat_GF_GAM[ Day_GAM_treat_post_compost$GAM_treat_GF_GAM < -7.697 ] <-NA
+# 
+# Day_GAM_treat_post_compost$GAM_treat_GF_GAM[ Day_GAM_treat_post_compost$GAM_treat_GF_GAM > 3.128 ] <-NA
+#  
+#  summary(Day_GAM_treat_post_compost$GAM_treat_GF_GAM)
+```
+
+
+```{r}
+#plotting
+plot(Day_GAM_treat_post_compost$TIMESTAMP,Day_GAM_treat_post_compost$GAM_treat_GF_GAM,
+     ylim = c(-8,4),
+     col= 'red')
+
+par(new=TRUE)
+plot(Day_GAM_treat_post_compost$TIMESTAMP, Day_GAM_treat_post_compost$NEE
+     ,ylim = c(-8,4)
+     )
+
+plot(Day_GAM_treat_post_compost$TIMESTAMP, Day_GAM_treat_post_compost$pred_GAM_NEE)
+
+plot(Day_GAM_treat_post_compost$TIMESTAMP, Day_GAM_treat_post_compost$GAM_treat_GF_GAM)
+
+with(Day_GAM_treat_post_compost, boxplot(Day_GAM_treat_post_compost$GAM_treat_GF_GAM~treatment
+                          ))
+#comparing NEE data to gap filled data
+summary(Day_GAM_treat_post_compost$NEE)
+summary(Day_GAM_treat_post_compost $GAM_treat_GF_GAM)
+
+
+
+
+```
+
+```{r}
+
+
+
+#comparing orginal NEE data to GF with GAM again
+summary(Day_GAM_treat_post_compost $GAM_treat_GF_GAM)
+summary(Day_GAM_treat_post_compost$NEE)
+
+#comparing post compost application
+summary(Day_GAM_treat_post_compost $GAM_treat_GF_GAM)
+summary(Day_GAM_treat_post_compost$NEE)
+
+
+#plotting overall data
+plot(Day_GAM_treat_post_compost$GAM_treat_GF_GAM ,
+       ylim=c (-8,5),
+     col ="red")
+par(new= TRUE)
+plot(Day_GAM_treat_post_compost$NEE,
+       ylim=c (-8,5),
+     col ="blue")
+
+#plotting data post compost application
+plot(Day_GAM_treat_post_compost$TIMESTAMP[Day_GAM_treat_post_compost $ TIMESTAMP > as.POSIXct("2020-12-12")& Day_GAM_treat_post_compost $ TIMESTAMP <as.POSIXct("2021-04-12")],Day_GAM_treat_post_compost$GAM_treat_GF_GAM [Day_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-12-12")& Day_GAM_treat_post_compost$TIMESTAMP <as.POSIXct("2021-04-12")],
+     ylim=c (-8,5),
+     ylab = "NEE",
+     xlab ="2020-2021",
+     main = "Treatment Side tower data (blue) and GF GAM Data (red)",
+     col ="red")
+par(new= TRUE)
+plot(Day_GAM_treat_post_compost$TIMESTAMP[Day_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-12-12")& Day_GAM_treat_post_compost $ TIMESTAMP <as.POSIXct("2021-04-12")],Day_GAM_treat_post_compost$NEE[Day_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-12-12")& Day_GAM_treat_post_compost $ TIMESTAMP <as.POSIXct("2021-04-12")],
+     ylim=c (-8,5),
+     ylab = "",
+     xlab = "",
+     col ="blue")
+```
+
+
+```{r}
+#plots
+plot(Day_GAM_treat_post_compost$TIMESTAMP,
+      Day_GAM_treat_post_compost$upperCI, lty = 'dashed', col = 'red',  ylim = c(-8,5))
+lines(Day_GAM_treat_post_compost$TIMESTAMP,
+      Day_GAM_treat_post_compost$lowerCI, lty = 'dashed', col = 'red',   ylim = c(-8,5))
+lines(Day_GAM_treat_post_compost$TIMESTAMP,
+     Day_GAM_treat_post_compost$GAM_treat_GF_GAM,
+     col="black",   ylim = c(-60,20))
+ legend(x= "topleft",
+         legend = c("95% CI","mean"),
+           pch = 16,
+         col = c( "red", "black"),
+         bty = "n")
+```
+
+```{r}
+#seeing which rows are duplicated
+which(duplicated(Day_GAM_treat_post_compost$TIMESTAMP))
+
+# #removing duplicated rows
+# Day_GAM_treat_post_compost<-Day_GAM_treat_post_compost[!duplicated(Day_GAM_treat_post_compost$TIMESTAMP), ]
+# 
+# #checking that this worked
+# 
+#  which(duplicated(Day_GAM_treat_post_compost$TIMESTAMP))
+#  
+#  #removing any rows with NA in time.id column
+#  Day_GAM_treat_post_compost <- Day_GAM_treat_post_compost[ !(Day_GAM_treat_post_compost$time.id %in% c(NA)), ]
+#  
+# #removing any rows with NA in TIMESTAMP column 
+#   Day_GAM_treat_post_compost <- Day_GAM_treat_post_compost[ !(Day_GAM_treat_post_compost$TIMESTAMP %in% c(NA)), ]
+#   
+#  which(duplicated(Day_GAM_treat_post_compost$TIMESTAMP))
+#  
+#  summary(Day_GAM_treat_post_compost $GAM_treat_GF_GAM[Day_GAM_treat_post_compost $ TIMESTAMP >as.POSIXct("2020-10-16")])
+#  
+#  Day_GAM_treat_post_compost
+ 
+
+
+
+
+
+```
+
+
+##save predictions
+
+```{r}
+#save dataframe
+
+write.csv(GAM_treat_post_compost,
+          paste(out.path,Sys.Date(),"_Boot_strap_Treatment_side_gap_filled_via_GAM.csv",sep=""),
+          quote = T,
+          row.names = F)
+```

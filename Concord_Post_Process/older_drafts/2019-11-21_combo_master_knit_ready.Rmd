@@ -1,0 +1,309 @@
+---
+title: 'Met_Master Merge with Eddy_Pro_Master: Data from 2019-11-18'
+output:
+  word_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+library(tidyverse)
+source("calc_footprint_FFP.R")
+library(ggplot2)
+library(modelr)
+options(na.action = na.warn)
+```
+
+
+# Lists #
+```{r}
+rm(list=ls())
+```
+
+# Defining the data I/O directory for the Eddy Master File #
+**
+```{r}
+path_eddy<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in_eddy<-paste(path_eddy,"01_Proccessed_Data",sep="")
+path.out_eddy<-paste(path_eddy,"03_combined_data",sep="")
+ver<-"Master_Eddy" 
+file.name_eddy<-paste("master_eddy_pro_concord",sep="")
+```
+
+# read in eddypro full output Master file, parse variable names #
+```{r}
+data_master_eddy<-read.csv(paste(path.in_eddy,"\\",ver,"\\",file.name_eddy,".csv",sep=""),
+                  header=F,
+                  skip=3,
+                  na.strings=c(-9999),
+                  stringsAsFactors = F)
+colnames(data_master_eddy)<-colnames(
+  read.csv(paste(path.in_eddy,"\\",ver,"\\",file.name_eddy,".csv",sep=""),
+           header=T,
+           skip=1))
+
+
+```
+
+
+# Defining the data I/O directory for the Master met_data #
+
+```{r}
+path_met<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+path.in_met<-paste(path_met,"01_Proccessed_Data",sep="")
+path.out_met<-paste(path_met,"03_combined_data",sep="")
+ver<-"met_data" 
+file.name<-paste("MET_data_master",sep="")
+```
+
+
+
+
+#read in Met_Data Master file, parse variable names and define N/As#
+
+
+```{r}
+met_data_master<-read.csv(paste(path.in_met,"\\",ver,"\\",file.name,".csv",sep=""),
+                  header=F,
+                  skip=4,
+                  na.strings=c("NAN"),
+                  stringsAsFactors = F)
+colnames(met_data_master)<-colnames(
+  read.csv(paste(path.in_met,"\\",ver,"\\",file.name,".csv",sep=""),
+           header=T,
+           skip= 1))
+
+
+
+```
+
+
+
+
+# Parsing the time stamp converting it into a POSIXlt vector#
+
+**interpreting date and time into new timestamp column**
+
+**Then taking that time stamp column and turning each time into a unique number (time.id) so I can join based on that. As it can be really tricky to join/merge based on time stamps alone**
+
+**Or I could make sure both time stamps are characters and match them that way**
+
+**Finally ploting time.id to make sure my times translate linearily**
+
+```{r}
+data_master_eddy$TIMESTAMP<-strptime(paste(data_master_eddy$date,data_master_eddy$time,sep=" "),format="%m/%d/%Y %H:%M", tz = "GMT")
+
+data_master_eddy$time.id<-data_master_eddy$TIMESTAMP$year+1900+(data_master_eddy$TIMESTAMP$yday)/366+(data_master_eddy$TIMESTAMP$hour)/366/24+ (data_master_eddy$TIMESTAMP$min)/366/24/60
+
+data_master_eddy$time.id[1:50]
+plot(data_master_eddy$time.id)
+which(duplicated(data_master_eddy$time.id))
+```
+
+
+#Taking the met_data and turning the time stamp into posixt format#
+
+```{r}
+met_data_master$TIMESTAMP<-strptime(met_data_master$TIMESTAMP,
+                           format ="%m/%d/%Y %H:%M", tz = "GMT")
+
+met_data_master$TIMESTAMP[1:20]
+```
+
+#Making sure timestamp columns line up#
+
+```{r}
+
+met_data_master$TIMESTAMP[1:10]
+
+data_master_eddy$TIMESTAMP[1:10]
+```
+
+
+
+
+#creating a time id for the MET Data so I I can join the MET and Eddy Pro Data#
+
+```{r}
+
+met_data_master$time.id <-met_data_master$TIMESTAMP$year+1900+(met_data_master$TIMESTAMP$yday)/366+(met_data_master$TIMESTAMP$hour)/366/24 + (met_data_master$TIMESTAMP$min)/366/24/60 
+
+met_data_master$time.id[1:20]
+plot(met_data_master$time.id)
+which(duplicated(met_data_master$time.id))
+
+
+```
+
+
+#Joining the Met_Data and Eddy Pro Data Sets#
+
+**with merge**
+
+```{r}
+
+combo_master_ed_met<- merge(met_data_master[,-which(colnames(met_data_master)=="TIMESTAMP")], data_master_eddy[,-which(colnames(data_master_eddy)=="TIMESTAMP")], by = "time.id")
+
+
+
+colnames(combo_master_ed_met)
+
+```
+
+
+#Add back time stamp to the combo_master_ed_met#
+```{r}
+combo_master_ed_met$TIMESTAMP<-strptime(paste(combo_master_ed_met$date,combo_master_ed_met$time,sep=" "),format="%m/%d/%Y %H:%M", tz = "GMT")
+
+combo_master_ed_met$TIMESTAMP[1:10]
+
+
+
+
+
+```
+
+#Creating a CSV File of my combine Master File!#
+```{r}
+write.csv(combo_master_ed_met,
+          paste(path.out_eddy,ver,"combo_master_ed_met",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+#filtering data for quality control filters#
+**filtering latent heat, sensible heat, co2 flux, qc_tau and h20flux by quality controls**
+
+```{r}
+combo_master_ed_met$LE.[!is.na(combo_master_ed_met$qc_LE)&combo_master_ed_met$qc_LE==2]<-NA
+
+combo_master_ed_met$qqc_h2o_flux[!is.na(combo_master_ed_met$qc_h2o_flux)&combo_master_ed_met$qc_h2o_flux==2]<-NA
+
+combo_master_ed_met$H[!is.na(combo_master_ed_met$qc_H)&combo_master_ed_met$qc_H==2]<-NA
+
+combo_master_ed_met$u.[!is.na(combo_master_ed_met$qc_Tau)&combo_master_ed_met$qc_Tau==2]<-NA
+
+combo_master_ed_met$co2_flux[!is.na(combo_master_ed_met$co2_flux)&combo_master_ed_met$co2_flux==2]<-NA
+
+
+```
+
+# latent heat, sensible heat, h20_flux, and relative humidity by day for whole period #
+
+
+```{r}
+
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$LE)
+hist(combo_master_ed_met$LE)
+
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$h2o_flux)
+
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$H)
+
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$RH)
+
+
+
+
+
+```
+
+
+
+
+#Plotting Co2 flux by timstamp on x-axis. 
+```{r}
+
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$co2_flux, ylim = c(-10,10),cex=0.6)
+
+plot(tapply(combo_master_ed_met$H,round(combo_master_ed_met$DOY),function(x) mean(x,na.rm=T)))
+
+
+
+```
+
+#line plot of c02_fluxes#
+```{r}
+ggplot(data = combo_master_ed_met) + 
+  geom_line(mapping = aes(x = time.id , y = co2_flux)) 
+
+```
+
+
+#latent heat and Sensible heat plotted over eachother
+
+```{r}
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$LE,pch=1,col="blue",cex=0.6)
+points(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$H,col="red",pch=1,cex=0.6)
+```
+
+#air temperatue by sensible heat an U* by co2 flux
+```{r}
+plot(combo_master_ed_met$air_temperature-273.15,combo_master_ed_met$H,xlim=c(10,40),ylim=c(-100,500))
+
+
+
+plot(combo_master_ed_met$u. ,combo_master_ed_met$co2_flux, ylim = c(0, 10), xlim = c(0,1))
+```
+
+
+#Adding best fit line to air temperature by sensible heat
+```{r}
+ggplot(data = combo_master_ed_met) + 
+  geom_point(mapping = aes(x = air_temperature-273.15, y = H)) +
+  geom_smooth(mapping = aes(x = air_temperature-273.15, y = H))
+
+
+```
+
+#best fit line to U* bt co2 flux
+```{r}
+ggplot(data = combo_master_ed_met) + 
+  geom_point(mapping = aes(x = u., y = co2_flux)) +
+  geom_smooth(mapping = aes(x = u., y = co2_flux))
+
+
+```
+
+
+```{r}
+library(tidyverse)
+hist(combo_master_ed_met$wind_dir, xlim = c(0,370), breaks = 36, main = "Wind Direction")
+```
+
+#Comparing MET Temperature data to temperature reading from Licor intruments#
+```{r}
+plot(combo_master_ed_met$TIMESTAMP ,combo_master_ed_met$PTemp_C_Avg)
+points(combo_master_ed_met$TIMESTAMP,combo_master_ed_met$air_temperature-273.15,col="red",pch=2)
+```
+
+
+
+#Adding coefficient to Net radiation#
+```{r}
+combo_master_ed_met$Correct_NR = (combo_master_ed_met$NR_Wm2_Avg*10)/14.2
+```
+
+
+```{r}
+summary(combo_master_ed_met$Correct_NR[c(1:600,2500:4000)])
+plot(combo_master_ed_met$Correct_NR)
+```
+
+
+filtering out bad NR numbers
+
+```{r}
+
+combo_master_ed_met$Correct_NR[!is.na(combo_master_ed_met$Correct_NR)&(combo_master_ed_met$Correct_NR<(-150)|combo_master_ed_met$Correct_NR>800)]<-NA
+summary(combo_master_ed_met$Correct_NR)
+plot(combo_master_ed_met$Correct_NR)
+```
+
+
+
+
+

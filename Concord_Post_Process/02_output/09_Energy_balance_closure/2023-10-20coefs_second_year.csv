@@ -1,0 +1,2 @@
+"term","estimate","std.error","statistic","p.value"
+"post_filter$E_ng[post_filter$TIMESTAMP > as.POSIXct(""2020-10-31"") & post_filter$TIMESTAMP < as.POSIXct(""2021-11-01"")]",0.777505522286662,0.00211302530055381,367.958453731191,0

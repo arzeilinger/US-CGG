@@ -1,0 +1,255 @@
+---
+title: "Merging CIMIS Data"
+output: html_notebook
+---
+
+
+
+```{r}
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+require(openair)
+
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+library(stringr)
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+library(dplyr)
+```
+
+
+# Defining the data I/O directory #
+
+```{r}
+## change root.path as needed
+root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+#root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord\\"
+
+combined.path<-paste0(root.path,"03_combined_data\\") ## this is where the combined data lives
+
+
+path.in_CIMIS<-paste0(root.path,"05_CIMIS_Data\\")
+ ver<-"cimis_data" 
+
+# hc: Use this for storing combined file
+path.out<-paste(root.path,"06_CIMIS_gap_fill\\",sep="")
+
+```
+
+
+
+#defining specific files
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.file_combo<-paste0("2020-08-06_master_eddy_met_concord_postfiltering.csv")
+
+
+
+## use follows to specify the version of the
+file.name_cimis<-paste("CIMIS_hourly.csv")
+
+
+
+```
+
+
+# Read in Combined fulloutput file
+# parse variable names and define N/As
+
+```{r}
+## read in full output file
+combo_data<-read.csv(paste0(combined.path, cdata.file_combo,sep=""),
+              
+                header=T,
+                na.strings="NA",
+                stringsAsFactors=F)
+colnames(combo_data)<-colnames(read.csv(paste(combined.path,cdata.file_combo,sep=""),
+                                  
+                                   header=T,
+                                   na.strings="NA"))
+
+
+
+head(combo_data)
+
+```
+
+
+#Read in CIMIS File
+```{r}
+## read in CIMIS file
+cimis_data<-read.csv(paste0(path.in_CIMIS, file.name_cimis,sep=""),
+                     header = T,
+                     skip = 1)
+              
+                
+
+colnames(cimis_data)<-colnames(read.csv(paste(path.in_CIMIS,file.name_cimis,sep=""),
+                                  
+                                   header=T,
+                                   na.strings="NA"))
+
+
+
+head(cimis_data)
+```
+
+# Parsing time stamp of cimis_data 
+#first add zero to the front of the am time values so the strptime can read them
+<!-- * then converting it into a POSIXlt vector* -->
+<!-- * interpreting date and time into new timestamp column* -->
+<!-- ** Then taking that time stamp column and turning each time into a unique number (time.id) so I can join based on that. As it can be really tricky to join/merge based on time stamps alone** -->
+
+<!-- ** Finally ploting time.id to make sure my times translate linearily** -->
+
+
+```{r}
+
+
+
+
+cimis_data$Hour<-str_pad (as.character(cimis_data$Hour), 4, pad = "0") #adding zero to the front of the am numbers
+
+
+
+cimis_data$TIMESTAMP<-strptime(paste(cimis_data$Date,cimis_data$Hour,sep=" "),
+                          format="%m/%d/%Y %H%M ",
+                          tz = "Etc/GMT-8")
+head( cimis_data$TIMESTAMP)
+
+plot(cimis_data$Sol.Rad)
+
+
+cimis_data$time.id<-cimis_data$TIMESTAMP$year+1900+
+  (cimis_data$TIMESTAMP$yday)/366+
+  (cimis_data$TIMESTAMP$hour)/366/24+
+  (cimis_data$TIMESTAMP$min)/366/24/60
+
+cimis_data$time.id[1:50]
+plot(cimis_data$TIMESTAMP,cimis_data$time.id)
+which(duplicated(cimis_data$time.id))
+
+head(cimis_data)
+
+
+
+
+```
+
+#For cmobined master data switching the timestamp back to a timestamp from being a character vector. 
+```{r}
+names(combo_data)[names(combo_data) == "TIMESTAMP"] <- "fake_timestamp"
+
+#colnames(combo_data)
+
+
+combo_data$TIMESTAMP<-strptime(paste(combo_data$fake_timestamp),
+                          format="%m/%d/%Y %H:%M",
+                         tz = "Etc/GMT-8")
+head(combo_data$TIMESTAMP)
+
+
+plot(combo_data$TIMESTAMP, combo_data$time.id)
+
+which(duplicated(combo_data$time.id))
+
+head(combo_data)
+
+```
+
+
+#trying to add half hourly timestamp to CIMIS data
+```{r}
+# # create a full timestamp, 30 mins
+# full.time<-data.frame(TIMESTAMP=
+#                         seq.POSIXt(min(cimis_data $TIMESTAMP),
+#                                    max(cimis_data$TIMESTAMP),
+#                                    units = "seconds", by = 1800),
+#                       stringsAsFactors=F)
+# 
+# full.time$TIMESTAMP<-strptime(full.time$TIMESTAMP,
+#                               format ="%Y-%m-%d %H:%M:%S",
+#                               tz = "Etc/GMT-8")
+# 
+# full.time$time.id <-full.time$TIMESTAMP$year+1900+
+#   (full.time$TIMESTAMP$yday)/366+
+#   (full.time$TIMESTAMP$hour)/366/24+
+#   (full.time$TIMESTAMP$min)/366/24/60 
+# 
+# print(paste("Starting timestamp:",full.time$TIMESTAMP[1]))
+# print(paste("Ending timestamp:",full.time$TIMESTAMP[nrow(full.time)]))
+# 
+# head(full.time)
+```
+
+
+
+#removing fake timestamp
+```{r}
+combo_data$fake_timestamp <-NULL
+# combo_data$TIMESTAMP<-NULL
+# cimis_data$TIMESTAMP <- NULL
+
+
+colnames(combo_data)
+colnames(cimis_data)
+
+```
+
+
+
+```{r}
+# 
+# combo_data<- merge.data.frame(full.time,
+#                          combo_data[,-which(colnames(cdata)=="TIMESTAMP")],
+#                          by = "time.id",
+#                          all = TRUE,
+#                          sort = TRUE)
+#all=true what ever appears in each file
+# 
+
+#merges, but keeps bot rows.
+cimis_combo_data<- merge.data.frame (combo_data,
+                         cimis_data[,-which(colnames(combo_data)=="TIMESTAMP")],
+                         by = "time.id",
+                         all = TRUE,
+                         sort = TRUE)
+
+
+
+############
+#neither works not work
+# cimis_combo_data <- left_join(combo_data, cimis_data, by = "time.id")
+
+
+# cimis_combo_data<- merge(combo_data[,-which(colnames(combo_data)=="TIMESTAMP")], cimis_data[,-which(colnames(cimis_data)=="TIMESTAMP")], by = "time.id")
+
+head(cimis_combo_data, 50)
+
+```
+
+
+```{r}
+write.csv(cimis_combo_data,
+          paste(path.out,Sys.Date(),"_eddy_met_cimis.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+
+```
+

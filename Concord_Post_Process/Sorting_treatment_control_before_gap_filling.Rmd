@@ -1,0 +1,585 @@
+---
+title: "Pulling out the treatment side data post compost application"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r echo=FALSE}
+rm(list=ls())
+
+require(stringr)
+require(zoo)
+require(openair)
+library(bigleaf)
+
+
+na.count<-function(x) sum(is.na(x))
+na.mean<-function(x) ifelse(is.nan(mean(x,na.rm=T)),NA,mean(x,na.rm=T))
+
+library(REddyProc)
+
+library(car)
+library(stringr)
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(broom)
+library(psych)
+
+library(lme4)
+library(dplyr)
+
+library(lognorm)
+
+SE <- function(x, na.rm=FALSE) {
+  if (na.rm) x <- na.omit(x)
+  sqrt(var(x)/length(x))
+}
+```
+
+#Defining the data I/O directory
+```{r}
+## change root.path as needed
+#root.path<-"C:\\Users\\Tommy\\flux\\Data-exploring\\02_Concord\\"
+root.path<-"D:\\Housen\\Flux\\Data-exploring\\02_Concord_Eden\\"
+
+cimis_gap_fill.path<-paste0(root.path,"06_CIMIS_gap_fill\\") ## this is where the gapfilled MET data lives
+
+foot_print.path <- paste0(root.path, "08_fp_lc\\")
+ver_2<- "master_fp_lc"
+
+out.path<-paste0(root.path, "12_treat_control_data\\")
+```
+
+#reading in a specific file
+
+```{r}
+## use follows to specify the versions of the combined file
+# file name of the combined_file
+cdata.file_gap_fill<-paste0("2021-09-13_eddy_met_cimis_gap_filled.csv")
+
+cdata.file_fp_lc <- paste("Master_fp_lc.csv")
+ 
+```
+
+
+# Read in gap filled fulloutput file
+# parse variable names and define N/As
+
+```{r}
+## read in full output file of gap filled data
+MET_gap_filled <-
+  read.csv(
+    paste0(cimis_gap_fill.path, cdata.file_gap_fill, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+
+```
+
+#read in footprint land cover file
+
+```{r}
+fp_lc_master <-
+  read.csv(
+    paste0(foot_print.path , cdata.file_fp_lc, sep = ""),
+    header = T,
+    na.strings = "NA",
+    stringsAsFactors = F
+  )
+
+```
+
+#adding back timestamp gap filled
+
+```{r}
+MET_gap_filled$TIMESTAMP <- strptime(paste(MET_gap_filled$TIMESTAMP),
+                                 format = "%Y-%m-%d %H:%M:%S",
+                                 tz = "UTC")
+
+```
+
+
+
+#fixing time stamp for footprint landcover
+```{r}
+fp_lc_master$TIMESTAMP <- strptime(paste(fp_lc_master$TIMESTAMP),
+                                   format = "%m/%d/%Y %H:%M",
+                                   tz = "UTC")
+
+```
+
+
+#addding time.id gap filled
+```{r}
+MET_gap_filled$time.id <- MET_gap_filled$TIMESTAMP$year + 1900 +
+  (MET_gap_filled$TIMESTAMP$yday) / 366 +
+  (MET_gap_filled$TIMESTAMP$hour) / 366 / 24 +
+  (MET_gap_filled$TIMESTAMP$min) / 366 / 24 / 60
+
+plot(MET_gap_filled$TIMESTAMP, MET_gap_filled$time.id)
+
+```
+
+
+
+#adding timeid for footprint_landcover
+
+```{r}
+fp_lc_master$time.id <- fp_lc_master$TIMESTAMP$year + 1900 +
+  (fp_lc_master$TIMESTAMP$yday) / 366 +
+  (fp_lc_master$TIMESTAMP$hour) / 366 / 24 +
+  (fp_lc_master$TIMESTAMP$min) / 366 / 24 / 60
+
+plot(fp_lc_master$TIMESTAMP, fp_lc_master$time.id)
+
+
+```
+
+
+#Creating DOY
+```{r}
+MET_gap_filled$DOY <- MET_gap_filled$TIMESTAMP$year + 1900 +
+  (MET_gap_filled$TIMESTAMP$yday) / 366
+
+######################################
+fp_lc_master$DOY <- fp_lc_master$TIMESTAMP$year + 1900 +
+  (fp_lc_master$TIMESTAMP$yday) / 366
+
+
+```
+
+#merging gap filled and post filter data based on time id
+```{r}
+MET_Gap_LC <- merge.data.frame(
+  MET_gap_filled,
+  fp_lc_master[, -which(colnames(fp_lc_master) == "TIMESTAMP")],
+  by = "time.id",
+  all.x  = TRUE,
+  sort = TRUE
+)
+
+```
+
+#creating DOY for gap fill post filter
+
+```{r}
+MET_Gap_LC$DOY <- 
+  MET_Gap_LC$TIMESTAMP$year + 1900 +
+  (MET_Gap_LC$TIMESTAMP$yday) / 366
+
+```
+#creating vpd column
+```{r}
+MET_Gap_LC$VPD <-
+  rH.to.VPD(
+    MET_Gap_LC$RH_Avg_GF / 100,
+    MET_Gap_LC$AirT_Avg_GF,
+    Esat.formula = c("Sonntag_1990", "Alduchov_1996",
+                     "Allen_1998"),
+    constants = bigleaf.constants()
+  )
+
+```
+
+#Sorting into pre-compost and post compost application treatment area
+
+```{r}
+
+#Sorting the treatment area into the pre and post compost application for analysis
+MET_Gap_LC $treat_pre_post_cmpst_filt<-rep("exclude",nrow(MET_Gap_LC))
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(!is.na(MET_Gap_LC$fpt_weight_treatment)&
+                                 MET_Gap_LC$fpt_weight_treatment>=0.7&
+                 MET_Gap_LC$TIMESTAMP> as.POSIXct("2020-10-16")         
+                 )        
+                 ]<-"treatment_post_compost" 
+
+#######################################################
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(!is.na(MET_Gap_LC$fpt_weight_treatment)&
+                                 MET_Gap_LC$fpt_weight_treatment>= 0.7 &
+                 MET_Gap_LC$TIMESTAMP < as.POSIXct("2020-10-16")         
+                 )        
+                 
+                                 ]<-"treatment_pre_compost" 
+
+######################################################
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(!is.na(MET_Gap_LC$fpt_weight_treatment)&
+                                 MET_Gap_LC$fpt_weight_treatment <0.3&
+                 MET_Gap_LC$TIMESTAMP> as.POSIXct("2020-10-16")         
+                 )        
+                 ]<-"control_post_compost"
+
+####################################################
+
+MET_Gap_LC$treat_pre_post_cmpst_filt[which(!is.na(MET_Gap_LC$fpt_weight_treatment)&
+                                 MET_Gap_LC$fpt_weight_treatment < 0.3 &
+                 MET_Gap_LC$TIMESTAMP < as.POSIXct("2020-10-16")         
+                 )        
+                 
+                                 ]<-"control_pre_compost" 
+
+
+table(MET_Gap_LC$treat_pre_post_cmpst_filt)
+
+```
+
+
+
+```{r}
+#colnames(MET_Gap_LC)
+```
+
+
+```{r}
+write.csv(MET_Gap_LC,
+          paste(out.path,Sys.Date(),"_MET_GAP_LC.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+#Sorting out treatment data post compost application for readyproc
+
+```{r}
+data.reddy_proc_treat_post_compost<-data.frame(
+                    TIMESTAMP = MET_Gap_LC$TIMESTAMP,
+                    H= MET_Gap_LC$H,  ## H
+                    LE=MET_Gap_LC$LE,    ## LE
+                    h2o_flux = MET_Gap_LC$h2o_flux, #h20flux
+                    NEE=MET_Gap_LC$co2_flux ,  ## c02 flux\
+                    rH = MET_Gap_LC$RH_Avg_GF, #gapfilled relative humidity
+                    Ustar = MET_Gap_LC$u.,   #ustar
+                    Tsoil = MET_Gap_LC$Soil_temp_Avg_GF_15cm, #gapfilled soil temperature
+                    Tair = MET_Gap_LC$AirT_Avg_GF, #gapfilled air temperature
+                    Rg=MET_Gap_LC$Rg_Avg_GF,  ## incoming solar radiation
+                    treatment = MET_Gap_LC$treat_pre_post_cmpst_filt
+                     
+)
+
+
+
+head(data.reddy_proc_treat_post_compost, 100)
+
+
+summary(data.reddy_proc_treat_post_compost)
+
+# write.csv(data.reddy_proc_treat,
+#           paste(out.path,Sys.Date(),"_compost_treat_reddy_proc.csv",sep=""),
+#           quote = T,
+#           row.names = F)
+```
+
+
+
+#Turning NEE, LE. H20 flux values that are not treatment post compost to NA's for ready proc gapfilling
+```{r}
+#Making all NEE values NA that are not treatment_post_compost
+data.reddy_proc_treat_post_compost$NEE[(data.reddy_proc_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+#Making all H values NA that are not treatment post compost
+data.reddy_proc_treat_post_compost$H[(data.reddy_proc_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+
+#Making all LE values NA that are not treatment post compost
+data.reddy_proc_treat_post_compost$LE[(data.reddy_proc_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+#Making all H20 flux values NA that are not treatment post compost
+data.reddy_proc_treat_post_compost$h2o_flux[(data.reddy_proc_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+
+
+tail(data.reddy_proc_treat_post_compost, 50
+     )
+
+
+```
+
+
+#preparing treatment side data post compost application for GAM gap_filling
+```{r}
+data.GAM_treat_post_compost<-data.frame(
+                    TIMESTAMP = MET_Gap_LC$TIMESTAMP,
+                    H= MET_Gap_LC$H,  ## H
+                    LE=MET_Gap_LC$LE,    ## LE
+                    h2o_flux = MET_Gap_LC$h2o_flux, #h20flux
+                    NEE=MET_Gap_LC$co2_flux ,  ## c02 flux\
+                    rH = MET_Gap_LC$RH_Avg_GF, #gapfilled relative humidity
+                    Ustar = MET_Gap_LC$u.,   #ustar
+                    Tsoil_0cm = MET_Gap_LC$Soil_temp_control_GF_0cm, #gapfilled soil temperature
+                    Tsoil_5cm = MET_Gap_LC$Soil_temp_control_GF_5cm,
+                    Tsoil_10cm = MET_Gap_LC$Soil_temp_control_GF_10cm,
+                    Tsoil_15cm = MET_Gap_LC$Soil_temp_control_GF_15cm,
+                    Tsoil_30cm = MET_Gap_LC$Soil_temp_control_GF_30cm,
+                    Tair = MET_Gap_LC$AirT_Avg_GF, #gapfilled air temperature
+                    VWC = MET_Gap_LC$VWC_Avg,
+                    Rg=MET_Gap_LC$Rg_Avg_GF,  ## incoming solar radiation
+                    precip =MET_Gap_LC$Precip_mm_Tot,
+                    VPD= MET_Gap_LC$VPD,
+                    treatment = MET_Gap_LC$treat_pre_post_cmpst_filt
+                     
+)
+
+
+
+head(data.GAM_treat_post_compost, 100)
+
+
+summary(data.GAM_treat_post_compost)
+
+```
+
+
+#Turning NEE, LE. H20 flux values that are not treatment post compost to NA's for GAM gapfilling
+```{r}
+#Making all NEE values NA that are not treatment_post_compost
+data.GAM_treat_post_compost$NEE[(data.GAM_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+#Making all H values NA that are not treatment post compost
+data.GAM_treat_post_compost$H[(data.GAM_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+
+#Making all LE values NA that are not treatment post compost
+data.GAM_treat_post_compost$LE[(data.GAM_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+#Making all H20 flux values NA that are not treatment post compost
+data.GAM_treat_post_compost$h2o_flux[(data.GAM_treat_post_compost $treatment != "treatment_post_compost")] <- NA
+
+
+
+tail(data.GAM_treat_post_compost, 50
+     )
+
+
+```
+
+#All of the data formatted for simplicity. maybe use for GAM
+```{r}
+data_GAM<-data.frame(
+                    TIMESTAMP = MET_Gap_LC$TIMESTAMP,
+                    H= MET_Gap_LC$H,  ## H
+                    LE=MET_Gap_LC$LE,    ## LE
+                    h2o_flux = MET_Gap_LC$h2o_flux, #h20flux
+                    NEE=MET_Gap_LC$co2_flux ,  ## c02 flux\
+                    rH = MET_Gap_LC$RH_Avg_GF, #gapfilled relative humidity
+                    Ustar = MET_Gap_LC$u.,   #ustar
+                    Tsoil_0cm = MET_Gap_LC$Soil_temp_control_GF_0cm, #gapfilled soil temperature
+                    Tsoil_5cm = MET_Gap_LC$Soil_temp_control_GF_5cm,
+                    Tsoil_10cm = MET_Gap_LC$Soil_temp_control_GF_10cm,
+                    Tsoil_15cm = MET_Gap_LC$Soil_temp_control_GF_15cm,
+                    Tsoil_30cm = MET_Gap_LC$Soil_temp_control_GF_30cm,
+                    Tair = MET_Gap_LC$AirT_Avg_GF, #gapfilled air temperature
+                    VWC_Control_GF = MET_Gap_LC$VWC_control_GF,
+                    Rg=MET_Gap_LC$Rg_Avg_GF,  ## incoming solar radiation
+                    precip =MET_Gap_LC$Precip_mm_Tot,
+                    VPD= MET_Gap_LC$VPD,
+                    treatment = MET_Gap_LC$treat_pre_post_cmpst_filt
+                     
+)
+
+
+
+head(data_GAM, 100)
+
+
+summary(data_GAM)
+```
+
+
+
+#Formating pre compost application data
+```{r}
+data_GAM_pre_compost<-data.frame(
+                    TIMESTAMP = MET_Gap_LC$TIMESTAMP,
+                    H= MET_Gap_LC$H,  ## H
+                    LE=MET_Gap_LC$LE,    ## LE
+                    h2o_flux = MET_Gap_LC$h2o_flux, #h20flux
+                    NEE=MET_Gap_LC$co2_flux ,  ## c02 flux\
+                    rH = MET_Gap_LC$RH_Avg_GF, #gapfilled relative humidity
+                    Ustar = MET_Gap_LC$u.,   #ustar
+                    Tsoil_0cm = MET_Gap_LC$Soil_temp_control_GF_0cm, #gapfilled soil temperature
+                    Tsoil_5cm = MET_Gap_LC$Soil_temp_control_GF_5cm,
+                    Tsoil_10cm = MET_Gap_LC$Soil_temp_control_GF_10cm,
+                    Tsoil_15cm = MET_Gap_LC$Soil_temp_control_GF_15cm,
+                    Tsoil_30cm = MET_Gap_LC$Soil_temp_control_GF_30cm,
+                    Tair = MET_Gap_LC$AirT_Avg_GF, #gapfilled air temperature
+                    VWC_Control_GF = MET_Gap_LC$VWC_control_GF,
+                    Rg=MET_Gap_LC$Rg_Avg_GF,  ## incoming solar radiation
+                    precip =MET_Gap_LC$Precip_mm_Tot,
+                    VPD= MET_Gap_LC$VPD,
+                    treatment = MET_Gap_LC$treat_pre_post_cmpst_filt
+                     
+)
+
+
+
+head(data_GAM_pre_compost, 100)
+
+
+summary(data_GAM_pre_compost)
+
+```
+
+
+
+#Turning NEE, LE. H20 flux values that are not Control pre or post compost, or treatment pre compost to NA's for attempt at ready proc gapfilling
+```{r}
+#Making all NEE values NA that are not control pre or post compost. 
+
+
+data_GAM_pre_compost$NEE[(data_GAM_pre_compost $treatment == "treatment_post_compost")] <- NA
+
+data_GAM_pre_compost$NEE[(data_GAM_pre_compost $treatment == "exclude")] <- NA
+
+
+#Making H values NA
+
+data_GAM_pre_compost$H[(data_GAM_pre_compost $treatment == "treatment_post_compost")] <- NA
+
+data_GAM_pre_compost$H[(data_GAM_pre_compost $treatment == "exclude")] <- NA
+
+
+
+#Making all LE values NA that are not control pre or post compost
+
+
+data_GAM_pre_compost$LE[(data_GAM_pre_compost $treatment == "treatment_post_compost")] <- NA
+
+data_GAM_pre_compost$LE[(data_GAM_pre_compost $treatment == "exclude")] <- NA
+
+
+
+#Making all H20 flux values NA that are not control pre or post compost
+
+
+data_GAM_pre_compost$h2o_flux[(data_GAM_pre_compost $treatment == "treatment_post_compost")] <- NA
+
+data_GAM_pre_compost$h2o_flux[(data_GAM_pre_compost $treatment == "exclude")] <- NA
+
+
+
+
+tail(data_GAM_pre_compost, 50
+     )
+
+
+```
+
+#Formatting post compost application data control data
+```{r}
+data_GAM_Control_post_compost<-data.frame(
+                    TIMESTAMP = MET_Gap_LC$TIMESTAMP,
+                    H= MET_Gap_LC$H,  ## H
+                    LE=MET_Gap_LC$LE,    ## LE
+                    h2o_flux = MET_Gap_LC$h2o_flux, #h20flux
+                    NEE=MET_Gap_LC$co2_flux ,  ## c02 flux\
+                    rH = MET_Gap_LC$RH_Avg_GF, #gapfilled relative humidity
+                    Ustar = MET_Gap_LC$u.,   #ustar
+                    Tsoil_0cm = MET_Gap_LC$Soil_temp_control_GF_0cm, #gapfilled soil temperature
+                    Tsoil_5cm = MET_Gap_LC$Soil_temp_control_GF_5cm,
+                    Tsoil_10cm = MET_Gap_LC$Soil_temp_control_GF_10cm,
+                    Tsoil_15cm = MET_Gap_LC$Soil_temp_control_GF_15cm,
+                    Tsoil_30cm = MET_Gap_LC$Soil_temp_control_GF_30cm,
+                    Tair = MET_Gap_LC$AirT_Avg_GF, #gapfilled air temperature
+                    VWC_Control_GF = MET_Gap_LC$VWC_control_GF,
+                    Rg=MET_Gap_LC$Rg_Avg_GF,  ## incoming solar radiation
+                    precip =MET_Gap_LC$Precip_mm_Tot,
+                    VPD= MET_Gap_LC$VPD,
+                    treatment = MET_Gap_LC$treat_pre_post_cmpst_filt
+                     
+)
+
+
+
+head(data_GAM_Control_post_compost, 100)
+
+
+summary(data_GAM_Control_post_compost)
+```
+
+
+
+#Making Data that is only post compost application control side with which to test the GAM model against. 
+```{r}
+#Making all NEE values NA that are not control_post_compost
+data_GAM_Control_post_compost$NEE[(data_GAM_Control_post_compost $treatment != "control_post_compost")] <- NA
+
+#Making all H values NA that are not control_post_compost
+data_GAM_Control_post_compost$H[(data_GAM_Control_post_compost $treatment != "control_post_compost")] <- NA
+
+
+#Making all LE values NA that are not control_post_compost
+data_GAM_Control_post_compost$LE[(data_GAM_Control_post_compost $treatment != "control_post_compost")] <- NA
+
+#Making all H20 flux values NA that are not control_post_compost
+data_GAM_Control_post_compost$h2o_flux[(data_GAM_Control_post_compost $treatment != "control_post_compost")] <- NA
+
+
+
+tail(data_GAM_Control_post_compost, 50
+     )
+```
+
+#writing CSV of treatment side data to be gap_filled in ready proc
+```{r}
+write.csv(data.reddy_proc_treat_post_compost,
+          paste(out.path,Sys.Date(),"_post_compost_treat_reddy_proc.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+#writing CSV of treatment side data to be gap_filled by GAM
+```{r}
+write.csv(data.GAM_treat_post_compost,
+          paste(out.path,Sys.Date(),"_post_compost_treat_GAM.csv",sep=""),
+          quote = T,
+          row.names = F)
+```
+
+
+#writing CSV of Data for GAM model fluxes before compost application 
+```{r}
+
+write.csv(data_GAM_pre_compost,
+          paste(out.path,Sys.Date(),"_pre_compost_GAM_data.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+
+#writing CSV of control side data post compost application with which to test the GAM model against. 
+```{r}
+write.csv(data_GAM_Control_post_compost,
+          paste(out.path,Sys.Date(),"_control_post_compost_GAM_data.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+```{r}
+
+write.csv(data_GAM,
+          paste(out.path,Sys.Date(),"_all_data_gam.csv",sep=""),
+          quote = T,
+          row.names = F)
+
+```
+
+```{r}
+#ANCOVA and Daytime NEE all year Comparison treatment and control area
+# NEE_by_fp_LC_all_year<- glmer( ~ Rg_f
+#                      + treat_pre_post_cmpst_filt +(1|treat_pre_post_cmpst_filt),
+#                   data = MET_Gap_LC[MET_Gap_LC$PotRad_U50 >0 &
+#                                  MET_Gap_LC$treat_pre_post_cmpst_filt!="exclude",])
+# 
+# summary(NEE_by_fp_LC_all_year)
+# Anova(NEE_by_fp_LC_all_year)
+# shapiro.test(resid(NEE_by_fp_LC_all_year))
+
+```
